@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
+from database import schema_repair
 from database import session as db_session
 
 # NEVER import Alert/AlertRule from models.alert here — that path caused
@@ -36,131 +37,21 @@ class AlertService:
             logger.warning("init_db during alerts ensure: {}", exc)
         self._ensure_schema()
 
-    # Slice B columns that older deploys are missing. `alerts` predates Slice B
-    # (it was created from the 9-column models.alert schema), and create_all /
-    # Table.create(checkfirst=True) never add columns to an existing table — so
-    # these must be ALTERed in on BOTH SQLite and Postgres, or every query that
-    # touches Alert.user_id fails with UndefinedColumn on Streamlit Cloud.
-    _SCHEMA_ADDITIONS: dict[str, list[tuple[str, str]]] = {
-        "alerts": [
-            ("user_id", "INTEGER"),
-            ("portfolio_id", "INTEGER"),
-            ("rule_id", "INTEGER"),
-            ("metric_value", "FLOAT"),
-            ("threshold", "FLOAT"),
-            ("fingerprint", "VARCHAR(256)"),
-            ("payload", "TEXT"),
-        ],
-    }
-
     # Last repair attempt, for the UI to show *why* a repair failed instead of
     # letting a downstream UndefinedColumn be the only visible symptom.
     schema_report: dict[str, Any] = {}
 
-    @staticmethod
-    def _existing_columns(table: str) -> Optional[set[str]]:
-        """Columns currently on `table`, or None if reflection itself failed."""
-        from sqlalchemy import inspect
-
-        try:
-            return {c["name"] for c in inspect(db_session.engine).get_columns(table)}
-        except Exception:
-            return None
-
     def _ensure_schema(self) -> None:
-        """Best-effort table/column ensure for SQLite and Postgres.
+        """Add any columns a database created by an older release is missing.
 
-        Records the outcome in ``AlertService.schema_report``; failures are
-        logged at warning/error, never swallowed silently.
+        `alerts` predates Slice B (created from the 9-column models.alert
+        schema), and create_all / Table.create(checkfirst=True) never add
+        columns to an existing table — so on Streamlit Cloud every query that
+        touches Alert.user_id failed with UndefinedColumn until repaired.
         """
-        from sqlalchemy import text
-
-        engine = db_session.engine
-        dialect = engine.dialect.name
-        report: dict[str, Any] = {
-            "dialect": dialect,
-            "database": engine.url.database,
-            "added": [],
-            "failed": [],
-            "still_missing": [],
-            "notes": [],
-        }
-        AlertService.schema_report = report
-
-        try:
-            Alert.__table__.create(bind=engine, checkfirst=True)
-            AlertRule.__table__.create(bind=engine, checkfirst=True)
-        except Exception as exc:
-            report["notes"].append(f"create tables: {type(exc).__name__}: {exc}")
-
-        if dialect not in ("sqlite", "postgresql"):
-            report["notes"].append(f"no column repair for dialect {dialect!r}")
-            return
-
-        if dialect == "postgresql":
-            # Which database/role/schema are we actually touching? A repair that
-            # ALTERs a table in a different schema than the one queries resolve
-            # to would look like a no-op, so surface this.
-            probes = {
-                "current_database": "SELECT current_database()",
-                "current_user": "SELECT current_user",
-                "search_path": "SHOW search_path",
-            }
-            for key, stmt in probes.items():
-                try:
-                    with engine.connect() as conn:
-                        report[key] = conn.execute(text(stmt)).scalar()
-                except Exception as exc:
-                    report[key] = f"<{type(exc).__name__}>"
-            try:
-                with engine.connect() as conn:
-                    report["alerts_in_schemas"] = [
-                        r[0]
-                        for r in conn.execute(
-                            text(
-                                "SELECT table_schema FROM information_schema.tables"
-                                " WHERE table_name = 'alerts'"
-                            )
-                        )
-                    ]
-            except Exception as exc:
-                report["notes"].append(f"locate alerts: {type(exc).__name__}: {exc}")
-
-        for table, columns in self._SCHEMA_ADDITIONS.items():
-            existing = self._existing_columns(table)
-            report[f"{table}_before"] = sorted(existing) if existing is not None else "<unreadable>"
-
-            for col, typedef in columns:
-                # If reflection failed, attempt the ALTER anyway rather than
-                # skipping the repair on the strength of a failed lookup.
-                if existing is not None and col in existing:
-                    continue
-                if dialect == "postgresql":
-                    sql = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {typedef}"
-                else:
-                    sql = f"ALTER TABLE {table} ADD COLUMN {col} {typedef}"
-                # One transaction per ALTER: on Postgres a failed statement
-                # aborts the whole transaction, poisoning later ALTERs.
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text(sql))
-                    report["added"].append(f"{table}.{col}")
-                    logger.info("Added missing column {}.{}", table, col)
-                except Exception as exc:
-                    detail = f"{table}.{col}: {type(exc).__name__}: {exc}"
-                    report["failed"].append(detail)
-                    logger.warning("Alert schema repair failed — {}", detail)
-
-            after = self._existing_columns(table)
-            if after is not None:
-                missing = [c for c, _ in columns if c not in after]
-                if missing:
-                    report["still_missing"].extend(f"{table}.{m}" for m in missing)
-                    logger.error(
-                        "Alert schema repair incomplete on {} — still missing: {}",
-                        table,
-                        ", ".join(missing),
-                    )
+        AlertService.schema_report = schema_repair.ensure_tables(
+            Alert.__table__, AlertRule.__table__, label="alerts"
+        )
 
     # ------------------------------------------------------------------ create / list
     def create_alert(

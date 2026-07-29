@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
+from database import schema_repair
 from database import session as db_session
 from models.portfolio import Portfolio, PortfolioHolding
 from utils.logging_config import get_logger
@@ -25,38 +26,19 @@ class PortfolioVaultService:
         db_session.init_db()
         self._ensure_schema()
 
+    # Last repair attempt, for the UI to show why a repair failed.
+    schema_report: dict[str, Any] = {}
+
     def _ensure_schema(self) -> None:
-        """
-        Best-effort column adds for older SQLite DBs.
-        On Postgres/Supabase, create_all() in init_db is sufficient for new deploys.
-        """
-        from sqlalchemy import text
+        """Add any columns a database created by an older release is missing.
 
-        url = str(db_session.engine.url)
-        if not url.startswith("sqlite"):
-            return  # Postgres: no SQLite-style ALTER loop needed
-
-        alters = [
-            ("portfolios", "source", "VARCHAR(64) DEFAULT 'manual'"),
-            ("portfolios", "description", "TEXT"),
-            ("portfolios", "as_of_date", "VARCHAR(32)"),
-            ("portfolios", "total_invested", "FLOAT"),
-            ("portfolios", "total_market_value", "FLOAT"),
-            ("portfolios", "holdings_count", "INTEGER DEFAULT 0"),
-            ("portfolios", "is_default", "BOOLEAN DEFAULT 0"),
-            ("portfolio_holdings", "market_value", "FLOAT"),
-            ("portfolio_holdings", "folio", "VARCHAR(128)"),
-            ("portfolio_holdings", "holding_type", "VARCHAR(32)"),
-        ]
-        try:
-            with db_session.engine.begin() as conn:
-                for table, col, typedef in alters:
-                    try:
-                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}"))
-                    except Exception:
-                        pass  # column exists
-        except Exception as exc:
-            logger.debug("Schema ensure skipped: {}", exc)
+        Covers Postgres as well as SQLite — a Cloud database whose `portfolios`
+        table predates these columns keeps the old shape, since create_all()
+        never alters an existing table.
+        """
+        PortfolioVaultService.schema_report = schema_repair.ensure_tables(
+            Portfolio.__table__, PortfolioHolding.__table__, label="vault"
+        )
 
     def list_portfolios(self, user_id: int) -> list[dict[str, Any]]:
         self.ensure_db()

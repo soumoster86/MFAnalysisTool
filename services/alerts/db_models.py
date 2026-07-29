@@ -13,7 +13,7 @@ from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
 from database.session import Base
 
 # Bump when changing schema so Cloud deploys are easy to verify in logs
-ALERT_ORM_VERSION = "2026-07-29-b5"
+ALERT_ORM_VERSION = "2026-07-29-b6"
 
 
 class Alert(Base):
