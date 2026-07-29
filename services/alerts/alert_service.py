@@ -16,8 +16,13 @@ logger = get_logger(__name__)
 
 
 def _alert_models():
-    """Lazy import so Streamlit multipage load does not trip circular imports."""
-    from models.alert import Alert, AlertRule
+    """
+    Load Alert / AlertRule ORM classes.
+
+    Uses services.alerts.db_models (not models.alert) so Streamlit Cloud multipage
+    never fails on a partially-initialized top-level `models` package.
+    """
+    from services.alerts.db_models import Alert, AlertRule
 
     return Alert, AlertRule
 

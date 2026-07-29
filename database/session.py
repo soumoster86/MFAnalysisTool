@@ -94,7 +94,13 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_db() -> None:
     """Create all tables (idempotent). Safe for Supabase Postgres and SQLite."""
+    # Import model modules so tables register on Base.metadata
     import models  # noqa: F401
+    import models.fund  # noqa: F401
+    import models.portfolio  # noqa: F401
+    import models.user  # noqa: F401
+    # Alerts live outside models.* to avoid Streamlit multipage import cycles
+    import services.alerts.db_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     # Quick connectivity check

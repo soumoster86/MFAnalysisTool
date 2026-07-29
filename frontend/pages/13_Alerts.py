@@ -27,7 +27,9 @@ try:
     from services.alerts.rules import RULE_HELP, known_alert_types
 except Exception as exc:
     st.error("Failed to load Alerts module.")
-    st.exception(exc)
+    st.code(f"{type(exc).__name__}: {exc}")
+    with st.expander("Full traceback"):
+        st.exception(exc)
     st.stop()
 
 st.title("Alerts")
