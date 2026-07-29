@@ -52,7 +52,7 @@ git push -u origin main
 
 ### Secrets (paste into Streamlit Cloud)
 
-Use **Supabase** for persistent users + portfolios (see [docs/SUPABASE.md](docs/SUPABASE.md)):
+Use **Neon Postgres** for persistent users + portfolios (see [docs/NEON.md](docs/NEON.md)):
 
 ```toml
 SECRET_KEY = "use-a-long-random-string-here"
@@ -63,8 +63,8 @@ OPENAI_API_KEY = "your-key"
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 OPENAI_MODEL = "gpt-5.6-sol"
 
-# Supabase → Project Settings → Database → Connection string → URI
-DATABASE_URL = "postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT_REF.supabase.co:5432/postgres"
+# Neon console → Project → Connection string (pooled or direct)
+DATABASE_URL = "postgresql://neondb_owner:npg_xxxxx@ep-xxxx-pooler.region.aws.neon.tech/neondb?sslmode=require"
 DATA_CACHE_DIR = "/tmp/mf_cache"
 ```
 
@@ -104,7 +104,7 @@ Wait for the first build (can take 10–20+ minutes). If it fails, check the Str
 Main file must be `frontend/app.py` (it adds the repo root to `sys.path`).
 
 ### App reboots wipe users/portfolios
-Expected with SQLite on `/tmp`. Use Supabase: set `DATABASE_URL` to your Postgres URI (see `docs/SUPABASE.md`).
+Expected with SQLite on `/tmp`. Use Neon: set `DATABASE_URL` to your Postgres URI (see `docs/NEON.md`).
 
 ### Groww / AMFI blocked
 Some hosts block scrapers; the app falls back to sample holdings / synthetic NAV when configured.

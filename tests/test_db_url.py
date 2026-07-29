@@ -12,6 +12,20 @@ def test_postgres_scheme_to_psycopg():
     assert "secret" in u
 
 
+def test_neon_url():
+    u = normalize_database_url(
+        "postgresql://neondb_owner:npg_x@ep-cool-pooler.ap-southeast-1.aws.neon.tech/neondb"
+    )
+    assert u.startswith("postgresql+psycopg://")
+    assert "sslmode=require" in u
+    assert is_supabase_pooler(u)  # -pooler host → prepare_threshold off
+
+
+def test_neon_direct_not_pooler():
+    u = "postgresql+psycopg://u:p@ep-cool.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
+    assert not is_supabase_pooler(u)
+
+
 def test_postgres_short_scheme():
     u = normalize_database_url("postgres://u:p@localhost:5432/db")
     assert u.startswith("postgresql+psycopg://")

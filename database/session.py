@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from config.db_url import is_supabase_pooler, normalize_database_url
+# is_supabase_pooler also detects Neon -pooler endpoints
 from config.settings import PROJECT_ROOT, settings
 from utils.logging_config import get_logger
 

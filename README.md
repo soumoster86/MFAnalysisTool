@@ -39,7 +39,7 @@ See **[DEPLOY.md](DEPLOY.md)** for full steps.
 - **Main file:** `frontend/app.py`
 - **Secrets:** Streamlit Cloud → App settings → Secrets (template: `.streamlit/secrets.toml.example`)
 - **Python:** 3.12 (`runtime.txt`)
-- **Persistent portfolios:** set `DATABASE_URL` to Postgres (SQLite on Cloud is ephemeral)
+- **Persistent portfolios:** set `DATABASE_URL` to **Neon Postgres** (see [docs/NEON.md](docs/NEON.md); SQLite on Cloud is ephemeral)
 
 ---
 
