@@ -67,6 +67,11 @@ try:
 except Exception as exc:
     counts = {"total": 0, "critical": 0, "warning": 0, "info": 0}
     st.warning(f"Could not load unread counts: {type(exc).__name__}: {exc}")
+    # An UndefinedColumn here means the auto-repair could not add the Slice B
+    # columns. Show why — the report names the DB, role, schema, and the real
+    # error from each failed ALTER.
+    st.error("Alert table schema repair did not complete. Details below.")
+    st.json(getattr(AlertService, "schema_report", {}) or {"report": "not populated"})
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Unread", counts.get("total", 0))
@@ -358,6 +363,12 @@ celery -A workers.celery_app.celery_app beat -l info
 Beat schedule: hourly vault alert scan + daily AMFI refresh.
         """
     )
+    st.markdown("**Alert table schema**")
+    if st.button("Run schema repair now"):
+        svc.ensure_db()
+        st.rerun()
+    st.json(getattr(AlertService, "schema_report", {}) or {"report": "not populated yet"})
+
     if st.button("Run full vault scan now (all users)"):
         try:
             with st.spinner("Scanning…"):
