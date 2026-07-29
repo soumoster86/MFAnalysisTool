@@ -81,17 +81,15 @@ st.dataframe(
     hide_index=True,
 )
 
-# Normalized NAV chart
-import plotly.graph_objects as go
-from frontend.theme import style_fig
+# Normalized NAV comparison chart
+from frontend.components.charts import multi_nav_normalized
 
-fig = go.Figure()
-for name, nav in navs.items():
-    s = nav.dropna().astype(float)
-    norm = s / s.iloc[0] * 100
-    fig.add_trace(go.Scatter(x=norm.index, y=norm.values, name=name, mode="lines"))
-fig.update_layout(title="Normalized NAV (base=100)", yaxis_title="Index")
-st.plotly_chart(style_fig(fig), use_container_width=True)
+st.subheader("NAV path comparison")
+st.caption(
+    "Each fund is rebased to **100** at the start of its series so growth is comparable. "
+    "Hover for date and index level."
+)
+st.plotly_chart(multi_nav_normalized(navs), use_container_width=True)
 
 scatter_df = cmp_df.dropna(subset=["volatility", "cagr"])
 if not scatter_df.empty:

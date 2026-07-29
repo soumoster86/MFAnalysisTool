@@ -12,16 +12,242 @@ from frontend.theme import style_fig
 
 
 def line_nav(nav: pd.Series, title: str = "NAV") -> go.Figure:
-    df = nav.reset_index()
-    df.columns = ["Date", "NAV"]
-    fig = px.line(df, x="Date", y="NAV", title=title)
+    """Backward-compatible NAV line — delegates to richer history chart."""
+    return nav_history_chart(nav, title=title, show_ma=True, normalize=False)
+
+
+def nav_history_chart(
+    nav: pd.Series,
+    *,
+    title: str = "NAV history",
+    show_ma: bool = True,
+    ma_window: int = 50,
+    normalize: bool = False,
+    source: str | None = None,
+    height: int = 420,
+) -> go.Figure:
+    """
+    Polished NAV time series for Fund Database / Dashboard.
+
+    - Area fill under the line
+    - Optional moving average
+    - High / low / latest markers
+    - Clear axis labels and hover
+    - Optional normalize to base 100
+    """
+    empty = go.Figure()
+    empty.update_layout(
+        title=title,
+        annotations=[dict(text="No NAV history", showarrow=False, font=dict(color="#8b9bb4"))],
+        height=height,
+    )
+    if nav is None or (hasattr(nav, "empty") and nav.empty) or len(nav.dropna()) < 2:
+        return style_fig(empty)
+
+    s = nav.dropna().astype(float).sort_index()
+    if not isinstance(s.index, pd.DatetimeIndex):
+        try:
+            s.index = pd.to_datetime(s.index)
+        except Exception:
+            pass
+
+    y = s.copy()
+    y_title = "NAV (₹)"
+    if normalize:
+        base = float(y.iloc[0])
+        if base > 0:
+            y = y / base * 100.0
+            y_title = "Index (base = 100)"
+
+    latest = float(y.iloc[-1])
+    first = float(y.iloc[0])
+    hi_idx = y.idxmax()
+    lo_idx = y.idxmin()
+    hi_val = float(y.loc[hi_idx])
+    lo_val = float(y.loc[lo_idx])
+    period_ret = (latest / first - 1.0) if first else 0.0
+    line_color = "#3fb950" if period_ret >= 0 else "#f85149"
+    fill_color = "rgba(63, 185, 80, 0.18)" if period_ret >= 0 else "rgba(248, 81, 73, 0.15)"
+
+    fig = go.Figure()
+
+    # Main NAV area
+    fig.add_trace(
+        go.Scatter(
+            x=y.index,
+            y=y.values,
+            mode="lines",
+            name="NAV" if not normalize else "Index",
+            line=dict(color=line_color, width=2.4),
+            fill="tozeroy",
+            fillcolor=fill_color,
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>" + y_title + ": %{y:.4f}<extra></extra>",
+        )
+    )
+
+    # Moving average
+    if show_ma and len(y) >= ma_window:
+        ma = y.rolling(ma_window, min_periods=max(5, ma_window // 5)).mean()
+        fig.add_trace(
+            go.Scatter(
+                x=ma.index,
+                y=ma.values,
+                mode="lines",
+                name=f"MA {ma_window}d",
+                line=dict(color="#58a6ff", width=1.6, dash="dot"),
+                hovertemplate="MA: %{y:.4f}<extra></extra>",
+            )
+        )
+
+    # High / low markers
+    fig.add_trace(
+        go.Scatter(
+            x=[hi_idx],
+            y=[hi_val],
+            mode="markers+text",
+            name="Peak",
+            marker=dict(color="#3fb950", size=10, symbol="triangle-up", line=dict(width=1, color="#e6edf3")),
+            text=["Peak"],
+            textposition="top center",
+            textfont=dict(size=10, color="#3fb950"),
+            hovertemplate=f"Peak<br>%{{x|%d %b %Y}}<br>{hi_val:.4f}<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[lo_idx],
+            y=[lo_val],
+            mode="markers+text",
+            name="Trough",
+            marker=dict(color="#f85149", size=10, symbol="triangle-down", line=dict(width=1, color="#e6edf3")),
+            text=["Trough"],
+            textposition="bottom center",
+            textfont=dict(size=10, color="#f85149"),
+            hovertemplate=f"Trough<br>%{{x|%d %b %Y}}<br>{lo_val:.4f}<extra></extra>",
+        )
+    )
+    # Latest marker
+    fig.add_trace(
+        go.Scatter(
+            x=[y.index[-1]],
+            y=[latest],
+            mode="markers",
+            name="Latest",
+            marker=dict(color="#e6edf3", size=9, line=dict(width=2, color=line_color)),
+            hovertemplate=f"Latest<br>%{{x|%d %b %Y}}<br>{latest:.4f}<extra></extra>",
+        )
+    )
+
+    subtitle = ""
+    if source:
+        subtitle = f"<br><sup>Source: {source} · {len(s)} points · {s.index.min():%Y-%m-%d} → {s.index.max():%Y-%m-%d}</sup>"
+    else:
+        subtitle = f"<br><sup>{len(s)} points · {s.index.min():%Y-%m-%d} → {s.index.max():%Y-%m-%d} · period {period_ret*100:+.1f}%</sup>"
+
+    fig.update_layout(
+        title=dict(text=title + subtitle, x=0, xanchor="left"),
+        xaxis=dict(title="Date", showgrid=True, rangeslider=dict(visible=False)),
+        yaxis=dict(title=y_title, showgrid=True, zeroline=False, side="right"),
+        height=height,
+        margin=dict(l=40, r=50, t=70, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, bgcolor="rgba(0,0,0,0)"),
+        hovermode="x unified",
+    )
+    return style_fig(fig)
+
+
+def nav_history_stats(nav: pd.Series) -> dict:
+    """Summary metrics for a NAV series (for KPI cards)."""
+    s = nav.dropna().astype(float).sort_index()
+    if len(s) < 2:
+        return {}
+    first, last = float(s.iloc[0]), float(s.iloc[-1])
+    total_ret = last / first - 1.0 if first else 0.0
+    days = max((s.index[-1] - s.index[0]).days, 1)
+    years = days / 365.25
+    cagr = (last / first) ** (1 / years) - 1 if first > 0 and years > 0 else None
+    peak = s.cummax()
+    dd = ((s - peak) / peak).min()
+    return {
+        "points": len(s),
+        "start": s.index.min(),
+        "end": s.index.max(),
+        "first_nav": first,
+        "latest_nav": last,
+        "period_return": total_ret,
+        "cagr": cagr,
+        "max_drawdown": float(dd),
+        "high": float(s.max()),
+        "low": float(s.min()),
+    }
+
+
+def multi_nav_normalized(
+    navs: dict[str, pd.Series],
+    *,
+    title: str = "Normalized NAV (base = 100)",
+    height: int = 460,
+) -> go.Figure:
+    """Compare several funds on a common base-100 scale with legend and range."""
+    from frontend.components.ui_blocks import short_labels
+
+    fig = go.Figure()
+    names = list(navs.keys())
+    labels = short_labels(names, max_len=28)
+    palette = ["#58a6ff", "#3fb950", "#d2a8ff", "#ffa657", "#f85149", "#79c0ff", "#7ee787"]
+
+    for i, (name, series) in enumerate(navs.items()):
+        s = series.dropna().astype(float).sort_index()
+        if len(s) < 2:
+            continue
+        base = float(s.iloc[0])
+        if base <= 0:
+            continue
+        norm = s / base * 100.0
+        fig.add_trace(
+            go.Scatter(
+                x=norm.index,
+                y=norm.values,
+                mode="lines",
+                name=labels[i] if i < len(labels) else name[:28],
+                line=dict(color=palette[i % len(palette)], width=2.2),
+                hovertemplate="<b>%{fullData.name}</b><br>%{x|%d %b %Y}<br>Index: %{y:.2f}<extra></extra>",
+            )
+        )
+
+    fig.update_layout(
+        title=dict(
+            text=title
+            + "<br><sup>All series rebased to 100 at their first available date in the window</sup>",
+            x=0,
+            xanchor="left",
+        ),
+        xaxis_title="Date",
+        yaxis_title="Index (base = 100)",
+        height=height,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.28, x=0, bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=40, r=30, t=70, b=90),
+        hovermode="x unified",
+    )
+    # Reference line at 100
+    fig.add_hline(y=100, line_dash="dot", line_color="#8b9bb4", line_width=1, opacity=0.5)
     return style_fig(fig)
 
 
 def drawdown_chart(nav: pd.Series, title: str = "Drawdown") -> go.Figure:
-    s = nav.dropna().astype(float)
+    s = nav.dropna().astype(float).sort_index()
+    if len(s) < 2:
+        fig = go.Figure()
+        fig.update_layout(title=title)
+        return style_fig(fig)
+    if not isinstance(s.index, pd.DatetimeIndex):
+        try:
+            s.index = pd.to_datetime(s.index)
+        except Exception:
+            pass
     peak = s.cummax()
     dd = (s - peak) / peak
+    worst = float(dd.min())
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
@@ -29,10 +255,24 @@ def drawdown_chart(nav: pd.Series, title: str = "Drawdown") -> go.Figure:
             y=dd.values,
             fill="tozeroy",
             name="Drawdown",
-            line=dict(color="#f85149"),
+            line=dict(color="#f85149", width=1.8),
+            fillcolor="rgba(248, 81, 73, 0.25)",
+            hovertemplate="<b>%{x|%d %b %Y}</b><br>Drawdown: %{y:.1%}<extra></extra>",
         )
     )
-    fig.update_layout(title=title, yaxis_tickformat=".0%")
+    fig.update_layout(
+        title=dict(
+            text=f"{title}<br><sup>Worst: {worst:.1%} from peak</sup>",
+            x=0,
+            xanchor="left",
+        ),
+        yaxis_tickformat=".0%",
+        yaxis_title="Drawdown",
+        xaxis_title="Date",
+        height=280,
+        margin=dict(l=40, r=30, t=60, b=40),
+        showlegend=False,
+    )
     return style_fig(fig)
 
 
