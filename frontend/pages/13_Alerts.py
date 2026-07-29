@@ -33,12 +33,18 @@ st.caption(
 # Load service (never crash the whole page)
 # ---------------------------------------------------------------------------
 try:
+    # Import ORM from services path only (not models.alert)
+    from services.alerts.db_models import ALERT_ORM_VERSION, Alert, AlertRule
     from services.alerts.alert_service import AlertService
     from services.alerts.rules import RULE_HELP, known_alert_types
+
+    assert Alert is not None and AlertRule is not None
 except Exception as exc:
     st.error("Failed to import Alerts backend.")
     st.code(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
     st.stop()
+
+st.caption(f"ORM build: `{ALERT_ORM_VERSION}` · source `services.alerts.db_models`")
 
 try:
     svc = AlertService()
@@ -50,18 +56,8 @@ except Exception as exc:
 user = get_current_user() if is_logged_in() else None
 uid = user["id"] if user else None
 
-# Seed rules lazily / safely — never block page render
-seed_err = None
-if uid:
-    try:
-        svc.seed_default_rules(uid)
-    except Exception as exc:
-        seed_err = f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
-
-if seed_err:
-    st.warning("Could not seed/load alert rules yet (page still works for evaluate).")
-    with st.expander("Seed error details"):
-        st.code(seed_err)
+# Do NOT auto-seed on page load (that path previously crashed Cloud).
+# User can seed from the rules expander button.
 
 # ---------------------------------------------------------------------------
 # Summary strip

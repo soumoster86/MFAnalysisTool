@@ -9,16 +9,15 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from database import session as db_session
-from models.alert import Alert, AlertRule
+
+# NEVER import Alert/AlertRule from models.alert here — that path caused
+# Streamlit Cloud circular ImportError: cannot import name 'AlertRule'.
+from services.alerts.db_models import ALERT_ORM_VERSION, Alert, AlertRule
 from services.alerts.rules import RuleSpec, default_rules, known_alert_types
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
-
-
-def _alert_models():
-    """Return ORM classes bound at module import time."""
-    return Alert, AlertRule
+logger.info("AlertService ORM source=services.alerts.db_models version={}", ALERT_ORM_VERSION)
 
 
 def _engine_cls():
@@ -35,19 +34,12 @@ class AlertService:
             db_session.init_db()
         except Exception as exc:
             logger.warning("init_db during alerts ensure: {}", exc)
-            # Still try schema alters / table create for alert tables only
-            try:
-                Alert.__table__.create(bind=db_session.engine, checkfirst=True)
-                AlertRule.__table__.create(bind=db_session.engine, checkfirst=True)
-            except Exception as exc2:
-                logger.warning("alert table create: {}", exc2)
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
         """Best-effort table/column ensure for SQLite and Postgres."""
         from sqlalchemy import text
 
-        # Always ensure tables exist (works on Postgres + SQLite)
         try:
             Alert.__table__.create(bind=db_session.engine, checkfirst=True)
             AlertRule.__table__.create(bind=db_session.engine, checkfirst=True)
@@ -97,7 +89,6 @@ class AlertService:
         skip_dedupe: bool = False,
     ) -> Optional[dict[str, Any]]:
         self.ensure_db()
-        Alert, _AlertRule = _alert_models()
         own = db is None
         db = db or db_session.SessionLocal()
         try:
@@ -109,7 +100,7 @@ class AlertService:
                     .first()
                 )
                 if existing:
-                    return None  # already fired today
+                    return None
             alert = Alert(
                 alert_type=alert_type,
                 severity=severity,
@@ -144,7 +135,6 @@ class AlertService:
         include_system: bool = True,
     ) -> list[dict[str, Any]]:
         self.ensure_db()
-        Alert, _AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             q = db.query(Alert).order_by(Alert.created_at.desc())
             if unread_only:
@@ -165,7 +155,6 @@ class AlertService:
 
     def count_unread(self, user_id: Optional[int] = None) -> dict[str, int]:
         self.ensure_db()
-        Alert, _AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             q = db.query(Alert).filter(Alert.is_read.is_(False))
             if user_id is not None:
@@ -183,7 +172,6 @@ class AlertService:
 
     def mark_read(self, alert_id: int, user_id: Optional[int] = None) -> bool:
         self.ensure_db()
-        Alert, _AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             a = db.get(Alert, alert_id)
             if not a:
@@ -196,7 +184,6 @@ class AlertService:
 
     def mark_all_read(self, user_id: Optional[int] = None) -> int:
         self.ensure_db()
-        Alert, _AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             q = db.query(Alert).filter(Alert.is_read.is_(False))
             if user_id is not None:
@@ -212,7 +199,6 @@ class AlertService:
 
     def delete_alert(self, alert_id: int, user_id: Optional[int] = None) -> bool:
         self.ensure_db()
-        Alert, _AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             a = db.get(Alert, alert_id)
             if not a:
@@ -227,7 +213,6 @@ class AlertService:
     def list_rules(self, user_id: Optional[int] = None) -> list[dict[str, Any]]:
         """User rules if any; else system defaults (not persisted)."""
         self.ensure_db()
-        _Alert, AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             q = db.query(AlertRule)
             if user_id is not None:
@@ -237,12 +222,10 @@ class AlertService:
             rows = q.order_by(AlertRule.id.asc()).all()
             if rows:
                 return [self._rule_to_dict(r) for r in rows]
-        # Fallback: defaults as virtual rules (id=None)
         return [r.to_dict() for r in default_rules()]
 
     def get_rule_specs(self, user_id: Optional[int] = None) -> list[RuleSpec]:
         self.ensure_db()
-        _Alert, AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             q = db.query(AlertRule).filter(AlertRule.enabled.is_(True))
             if user_id is not None:
@@ -259,7 +242,6 @@ class AlertService:
     def seed_default_rules(self, user_id: Optional[int] = None) -> int:
         """Persist default rules for a user (or system if user_id is None)."""
         self.ensure_db()
-        # Use module-level AlertRule (no nested import)
         with db_session.SessionLocal() as db:
             q = db.query(AlertRule)
             if user_id is None:
@@ -304,7 +286,6 @@ class AlertService:
         if alert_type not in known_alert_types():
             raise ValueError(f"Unknown alert_type: {alert_type}")
         self.ensure_db()
-        _Alert, AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             if rule_id is not None:
                 row = db.get(AlertRule, rule_id)
@@ -331,7 +312,6 @@ class AlertService:
 
     def set_rule_enabled(self, rule_id: int, enabled: bool, user_id: Optional[int] = None) -> bool:
         self.ensure_db()
-        _Alert, AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             row = db.get(AlertRule, rule_id)
             if not row:
@@ -345,7 +325,6 @@ class AlertService:
 
     def delete_rule(self, rule_id: int, user_id: Optional[int] = None) -> bool:
         self.ensure_db()
-        _Alert, AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             row = db.get(AlertRule, rule_id)
             if not row:
@@ -368,11 +347,6 @@ class AlertService:
         include_overlap: bool = True,
         persist: bool = True,
     ) -> dict[str, Any]:
-        """
-        Run the real engine on holdings and optionally persist fired alerts.
-
-        Returns summary + list of created (or dry-run) alerts.
-        """
         specs = rules if rules is not None else self.get_rule_specs(user_id)
         engine = _engine_cls()()
         result = engine.evaluate(
@@ -400,6 +374,7 @@ class AlertService:
             "errors": result.errors[:20],
             "skipped": result.skipped,
             "alerts": created,
+            "orm_version": ALERT_ORM_VERSION,
         }
 
     def evaluate_amfi_codes(
@@ -409,7 +384,10 @@ class AlertService:
         user_id: Optional[int] = None,
         max_funds: int = 25,
     ) -> dict[str, Any]:
-        holdings = [{"amfi_code": str(c), "scheme_name": str(c), "invested_amount": 1.0} for c in amfi_codes]
+        holdings = [
+            {"amfi_code": str(c), "scheme_name": str(c), "invested_amount": 1.0}
+            for c in amfi_codes
+        ]
         return self.evaluate_portfolio(
             holdings,
             user_id=user_id,
@@ -425,7 +403,6 @@ class AlertService:
         max_funds: int = 25,
         include_overlap: bool = False,
     ) -> dict[str, Any]:
-        """Evaluate vault portfolio(s) for a logged-in user."""
         from services.portfolio.vault_service import PortfolioVaultService, VaultError
 
         vault = PortfolioVaultService()
@@ -475,11 +452,10 @@ class AlertService:
             "status": "ok",
             "alerts_created": total_created,
             "portfolios": summaries,
+            "orm_version": ALERT_ORM_VERSION,
         }
 
-    # ------------------------------------------------------------------ legacy hooks
     def seed_demo_alerts(self) -> int:
-        """No longer auto-seeds fake alerts; kept for API compatibility."""
         return 0
 
     def evaluate_nav_alerts(
@@ -489,7 +465,6 @@ class AlertService:
         daily_return: float,
         drawdown: float,
     ) -> list[dict[str, Any]]:
-        """Backward-compatible single-fund hook used by older Celery tasks."""
         created = []
         if daily_return <= -0.03:
             row = self.create_alert(
@@ -521,7 +496,6 @@ class AlertService:
                 created.append(row)
         return created
 
-    # ------------------------------------------------------------------ helpers
     def _persist_fired(self, f, user_id: Optional[int] = None) -> Optional[dict[str, Any]]:
         return self.create_alert(
             alert_type=f.alert_type,

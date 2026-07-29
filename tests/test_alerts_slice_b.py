@@ -108,6 +108,17 @@ def test_engine_fires_nav_drop_and_drawdown(isolated_db):
     assert "concentration" in types  # single holding = 100%
 
 
+def test_alert_rule_exportable():
+    """Regression: Streamlit Cloud failed with cannot import name AlertRule."""
+    from models.alert import Alert as A1, AlertRule as R1
+    from services.alerts.db_models import Alert as A2, AlertRule as R2
+
+    assert A1 is not None and R1 is not None
+    assert A2 is not None and R2 is not None
+    assert R1.__tablename__ == "alert_rules"
+    assert R2.__tablename__ == "alert_rules"
+
+
 def test_service_persist_and_dedupe(isolated_db, monkeypatch):
     from services.alerts import alert_service as svc_mod
     from services.alerts.alert_service import AlertService

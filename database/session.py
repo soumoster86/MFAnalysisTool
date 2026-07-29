@@ -99,7 +99,8 @@ def init_db() -> None:
     import models.fund  # noqa: F401
     import models.portfolio  # noqa: F401
     import models.user  # noqa: F401
-    import models.alert  # noqa: F401  # Alert + AlertRule
+    # Single registry for alerts (do not also import models.alert classes separately)
+    import services.alerts.db_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     # Quick connectivity check
