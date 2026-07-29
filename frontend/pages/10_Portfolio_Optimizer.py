@@ -7,6 +7,7 @@ import streamlit as st
 
 from analytics.optimizer import PortfolioOptimizer
 from frontend.components.charts import efficient_frontier
+from frontend.components.provenance import provenance_for_codes, render_provenance
 from frontend.state import get_fund_service, init_portfolio_holdings
 from frontend.theme import apply_theme
 from utils.helpers import pct
@@ -49,11 +50,18 @@ if st.button("Optimize", type="primary"):
         if not res.efficient_frontier:
             res.efficient_frontier = opt.max_sharpe(rets).efficient_frontier
         st.session_state["opt_result"] = res
+        st.session_state["opt_provenance"] = provenance_for_codes(
+            svc, holdings, include_holdings=False
+        ).to_dict()
 
 res = st.session_state.get("opt_result")
 if not res:
     st.info("Run optimizer on current portfolio funds.")
     st.stop()
+
+render_provenance(
+    st.session_state.get("opt_provenance"), what="This allocation and frontier"
+)
 
 from frontend.components.ui_blocks import insight_cards, weights_bar, short_fund_name
 import pandas as pd

@@ -6,6 +6,7 @@ import streamlit as st
 
 from frontend.components.charts import bar_scores, gauge_score
 from frontend.components.ui_blocks import horizontal_bar, insight_cards, score_pill, tip_list
+from frontend.components.provenance import provenance_for_codes, render_provenance
 from frontend.state import get_fund_service
 from frontend.theme import apply_theme
 from utils.helpers import pct
@@ -98,12 +99,6 @@ if factors:
         use_container_width=True,
     )
 
-src = data.get("data_sources") or {}
-st.caption(
-    f"Data sources — NAV: `{src.get('nav')}` · Holdings: `{src.get('holdings')}` · "
-    f"Meta: `{src.get('meta_enrichment')}`"
+render_provenance(
+    provenance_for_codes(svc, entries=[(name, code)]), what="These fund metrics"
 )
-if src.get("nav") == "synthetic":
-    st.warning("NAV history is synthetic (live providers failed). Metrics may not match published returns.")
-if src.get("holdings") == "sample":
-    st.warning("Holdings are sample/synthetic (live Groww lookup failed).")

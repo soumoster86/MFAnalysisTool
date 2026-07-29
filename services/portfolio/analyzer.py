@@ -15,6 +15,7 @@ from analytics.health_score import FundHealthScorer
 from analytics.overlap import PortfolioOverlapAnalyzer
 from analytics.risk_metrics import RiskMetricsCalculator
 from services.data.fund_service import FundService
+from services.data.provenance import Provenance
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -44,6 +45,10 @@ class PortfolioAnalysis:
     nav_series: Optional[pd.Series] = None
     notes: list[str] = field(default_factory=list)
     mode: str = "full"
+    # Which source fed each fund's NAV/holdings — see services.data.provenance.
+    # Consumers must disclose fabricated inputs rather than presenting the
+    # numbers as if they came from live market data.
+    data_sources: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -237,6 +242,17 @@ class PortfolioAnalyzerService:
                 "(keeps the UI responsive)."
             )
 
+        prov = Provenance.from_service(
+            self.funds,
+            [(d["scheme_name"], d["amfi_code"]) for d in detail],
+        )
+        if prov.has_fabricated:
+            notes.append(
+                f"⚠ {len(prov.fabricated_nav)} fund(s) used synthetic NAV and "
+                f"{len(prov.fabricated_holdings)} used sample holdings — "
+                "live providers failed for those."
+            )
+
         report(1.0, "Done")
         return PortfolioAnalysis(
             total_invested=round(total_invested, 2),
@@ -261,6 +277,7 @@ class PortfolioAnalyzerService:
             nav_series=port_nav,
             notes=notes,
             mode=mode,
+            data_sources=prov.to_dict(),
         )
 
     # ---------------------------------------------------------------- builders

@@ -15,6 +15,7 @@ from frontend.components.ui_blocks import (
     tip_list,
     top_holdings_bar,
 )
+from frontend.components.provenance import provenance_for_codes, render_provenance
 from frontend.state import get_fund_service
 from frontend.theme import apply_theme
 
@@ -45,6 +46,10 @@ with st.spinner("Running X-Ray…"):
         category=a["meta"].get("category"),
         riskometer=a["meta"].get("riskometer"),
     )
+
+render_provenance(
+    provenance_for_codes(svc, entries=[(name, code)]), what="This X-Ray"
+)
 
 h = report.overall_health
 score_pill(h.overall, report.scheme_name[:50])

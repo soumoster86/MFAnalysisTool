@@ -16,6 +16,7 @@ from frontend.components.ui_blocks import (
     tip_list,
     top_holdings_bar,
 )
+from frontend.components.provenance import provenance_for_codes, render_provenance
 from frontend.state import get_fund_service, init_portfolio_holdings
 from frontend.theme import apply_theme
 
@@ -71,6 +72,19 @@ for i, (val, h) in enumerate(rows):
 progress.progress(1.0, text="Computing overlap…")
 result = PortfolioOverlapAnalyzer().analyze(holdings_by_fund, weights, fund_meta)
 progress.empty()
+
+# Overlap is computed entirely from stock-level holdings, so sample holdings
+# make every number here meaningless — disclose before any of it is shown.
+render_provenance(
+    provenance_for_codes(
+        svc,
+        entries=[
+            (h.get("scheme_name") or str(h.get("amfi_code") or ""), str(h.get("amfi_code") or ""))
+            for _, h in rows
+        ],
+    ),
+    what="This overlap analysis",
+)
 
 # ---- KPI cards ----
 insight_cards(

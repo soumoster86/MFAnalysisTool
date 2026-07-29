@@ -15,6 +15,7 @@ from frontend.components.charts import (
     sunburst_from_holdings,
     treemap_alloc,
 )
+from frontend.components.provenance import render_provenance
 from frontend.state import get_fund_service, get_portfolio_analyzer, init_portfolio_holdings
 from frontend.theme import apply_theme
 from analytics.optimizer import PortfolioOptimizer
@@ -26,6 +27,8 @@ st.caption("Plotly · treemap · heatmap · sunburst · frontier · drawdown · 
 
 analysis = get_portfolio_analyzer().analyze(init_portfolio_holdings())
 svc = get_fund_service()
+
+render_provenance(analysis.data_sources, what="These charts")
 
 tab1, tab2, tab3, tab4 = st.tabs(["Portfolio", "Holdings", "Risk", "Frontier"])
 

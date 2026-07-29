@@ -7,6 +7,7 @@ import streamlit as st
 
 from frontend.components.charts import line_nav, risk_return_scatter
 from frontend.components.ui_blocks import risk_return_ranking_table
+from frontend.components.provenance import provenance_for_codes, render_provenance
 from frontend.state import get_fund_service
 from frontend.theme import apply_theme
 from services.ai.assistant import FinancialAssistant
@@ -61,6 +62,11 @@ for name in selected:
         }
     )
     navs[name[:40]] = a["nav"]
+
+render_provenance(
+    provenance_for_codes(svc, entries=[(r["name"], r["amfi_code"]) for r in rows]),
+    what="This comparison",
+)
 
 cmp_df = pd.DataFrame(rows)
 st.dataframe(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from frontend.components.provenance import provenance_for_codes, render_provenance
 from frontend.state import get_fund_service
 from frontend.theme import apply_theme
 from ml.feature_engineering import FeatureEngineer
@@ -46,6 +47,13 @@ if st.button("Train & compare models", type="primary"):
         result = ModelTrainer().compare(X, y, target_name=target)
         st.session_state["ml_result"] = result
         st.session_state["ml_feat_shape"] = X.shape
+        st.session_state["ml_provenance"] = provenance_for_codes(
+            svc, entries=[(name, code)], include_holdings=False
+        ).to_dict()
+
+_ml_prov = st.session_state.get("ml_provenance")
+if _ml_prov:
+    render_provenance(_ml_prov, what="This model's training data")
 
 result = st.session_state.get("ml_result")
 if not result:

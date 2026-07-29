@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import streamlit as st
 
+from frontend.components.provenance import render_provenance
 from frontend.state import get_portfolio_analyzer, init_portfolio_holdings
+from services.data.provenance import Provenance
 from frontend.theme import apply_theme
 from services.ai.assistant import FinancialAssistant
 from services.reports.report_service import ReportService
@@ -18,6 +20,8 @@ st.caption("PDF · Excel · PowerPoint · optional AI summary")
 analysis = get_portfolio_analyzer().analyze(init_portfolio_holdings())
 report_svc = ReportService()
 
+render_provenance(analysis.data_sources, what="This report's figures")
+
 summary_lines = [
     f"Portfolio value: {format_inr(analysis.total_current)}",
     f"Invested: {format_inr(analysis.total_invested)}",
@@ -27,6 +31,16 @@ summary_lines = [
     f"Volatility: {pct(analysis.volatility) if analysis.volatility is not None else 'N/A'}",
     f"Sharpe: {analysis.sharpe:.2f}" if analysis.sharpe is not None else "Sharpe: N/A",
 ]
+
+# A generated file outguns any on-screen banner — it gets read detached from
+# this page, so the disclosure has to travel inside it.
+_prov = Provenance.from_dict(analysis.data_sources)
+if _prov.has_fabricated:
+    summary_lines.append(
+        f"DATA WARNING: {len(_prov.fabricated_nav)} fund(s) used synthetic NAV and "
+        f"{len(_prov.fabricated_holdings)} used sample holdings. Figures above are "
+        "illustrative and do not match published returns."
+    )
 
 for line in summary_lines:
     st.write(f"- {line}")

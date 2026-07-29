@@ -11,6 +11,7 @@ from frontend.components.charts import (
     line_nav,
     treemap_alloc,
 )
+from frontend.components.provenance import render_provenance
 from frontend.state import get_cached_analysis, init_portfolio_holdings
 from frontend.theme import apply_theme, score_class
 from utils.helpers import format_inr, pct
@@ -74,6 +75,8 @@ else:
             "Enable **Deep analysis** for stock holdings & overlap detail.",
             icon="⚡",
         )
+
+render_provenance(analysis.data_sources, what="These portfolio figures")
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Portfolio Value", format_inr(analysis.total_current))

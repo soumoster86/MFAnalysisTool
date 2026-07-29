@@ -17,6 +17,7 @@ from frontend.components.ui_blocks import (
     tip_list,
     top_holdings_bar,
 )
+from frontend.components.provenance import render_provenance
 from frontend.state import get_cached_analysis, init_portfolio_holdings, set_portfolio_holdings
 from frontend.theme import apply_theme
 from utils.helpers import format_inr, pct
@@ -88,6 +89,8 @@ else:
             "sectors, overlap heatmap, and more NAV history.",
             icon="⚡",
         )
+
+render_provenance(analysis.data_sources, what="These portfolio metrics")
 
 # ---- Snapshot cards ----
 insight_cards(

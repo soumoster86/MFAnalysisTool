@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import streamlit as st
 
+from frontend.components.provenance import render_provenance
 from frontend.state import get_portfolio_analyzer, init_portfolio_holdings
 from frontend.theme import apply_theme
 from services.ai.assistant import FinancialAssistant
+from services.data.provenance import Provenance
 
 apply_theme()
 
@@ -21,6 +23,10 @@ else:
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+
+render_provenance(
+    st.session_state.get("chat_provenance"), what="The portfolio figures given to the assistant"
+)
 
 inject = st.checkbox("Inject current portfolio context", value=True)
 style = st.selectbox(
@@ -57,7 +63,22 @@ if prompt:
                 "asset_allocation": analysis.asset_allocation,
                 "top_holdings": analysis.top_holdings[:5],
             }
-            ctx = assistant.build_context(portfolio_summary=summary)
+            # The model is told to treat CONTEXT as authoritative and cite it.
+            # If any of it came from a synthetic NAV path, say so inside the
+            # context itself — otherwise the assistant states fabricated
+            # figures as fact, which is exactly what it must never do.
+            prov = Provenance.from_dict(analysis.data_sources)
+            extra = None
+            if prov.has_fabricated:
+                extra = (
+                    "DATA CAVEAT: some figures above derive from SYNTHETIC NAV or "
+                    f"SAMPLE holdings ({len(prov.fabricated_nav)} fund(s) synthetic NAV, "
+                    f"{len(prov.fabricated_holdings)} sample holdings) because live "
+                    "providers failed. You MUST state this caveat when citing any "
+                    "affected number, and must not present it as real performance."
+                )
+            ctx = assistant.build_context(portfolio_summary=summary, extra=extra)
+            st.session_state["chat_provenance"] = analysis.data_sources
         except Exception as exc:
             ctx = assistant.build_context(extra=f"Portfolio context error: {exc}")
 
