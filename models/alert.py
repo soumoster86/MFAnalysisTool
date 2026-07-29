@@ -23,9 +23,8 @@ class Alert(Base):
     portfolio_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("portfolios.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    rule_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("alert_rules.id", ondelete="SET NULL"), nullable=True, index=True
-    )
+    # Integer only (no FK) — avoids create/import order issues with alert_rules
+    rule_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     alert_type: Mapped[str] = mapped_column(String(64), index=True)
     severity: Mapped[str] = mapped_column(String(16), default="info")  # info/warning/critical
     title: Mapped[str] = mapped_column(String(256))

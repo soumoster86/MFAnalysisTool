@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Streamlit multipage pages may not inherit path setup — ensure project root
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import streamlit as st
 
 from frontend.state import (
@@ -11,11 +19,16 @@ from frontend.state import (
     is_logged_in,
 )
 from frontend.theme import apply_theme
-from services.alerts.alert_service import AlertService
-from services.alerts.rules import RULE_HELP, known_alert_types
-from workers.tasks import evaluate_alerts, evaluate_all_vault_alerts, refresh_amfi
 
 apply_theme()
+
+try:
+    from services.alerts.alert_service import AlertService
+    from services.alerts.rules import RULE_HELP, known_alert_types
+except Exception as exc:
+    st.error("Failed to load Alerts module.")
+    st.exception(exc)
+    st.stop()
 
 st.title("Alerts")
 st.caption(
@@ -91,6 +104,8 @@ if run_session:
                     persist=False,
                 )
             else:
+                from workers.tasks import evaluate_alerts
+
                 out = evaluate_alerts(
                     holdings=holdings,
                     user_id=uid,
@@ -114,6 +129,8 @@ if run_session:
 
 if run_vault and uid:
     with st.spinner("Evaluating vault portfolios…"):
+        from workers.tasks import evaluate_alerts
+
         out = evaluate_alerts(
             user_id=uid,
             include_overlap=include_overlap,
@@ -130,6 +147,8 @@ if mark_all:
     st.rerun()
 
 if refresh:
+    from workers.tasks import refresh_amfi
+
     out = refresh_amfi.delay(True) if hasattr(refresh_amfi, "delay") else refresh_amfi(True)
     st.write(out)
 
@@ -293,5 +312,7 @@ Beat schedule: hourly vault alert scan + daily AMFI refresh.
     )
     if st.button("Run full vault scan now (all users)"):
         with st.spinner("Scanning…"):
+            from workers.tasks import evaluate_all_vault_alerts
+
             out = evaluate_all_vault_alerts(max_users=20, max_funds=10)
         st.json(out)

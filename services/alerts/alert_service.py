@@ -9,12 +9,23 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from database import session as db_session
-from models.alert import Alert, AlertRule
-from services.alerts.engine import AlertEngine, FiredAlert
 from services.alerts.rules import RuleSpec, default_rules, known_alert_types
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+def _alert_models():
+    """Lazy import so Streamlit multipage load does not trip circular imports."""
+    from models.alert import Alert, AlertRule
+
+    return Alert, AlertRule
+
+
+def _engine_cls():
+    from services.alerts.engine import AlertEngine
+
+    return AlertEngine
 
 
 class AlertService:
@@ -71,6 +82,7 @@ class AlertService:
         skip_dedupe: bool = False,
     ) -> Optional[dict[str, Any]]:
         self.ensure_db()
+        Alert, _AlertRule = _alert_models()
         own = db is None
         db = db or db_session.SessionLocal()
         try:
@@ -117,6 +129,7 @@ class AlertService:
         include_system: bool = True,
     ) -> list[dict[str, Any]]:
         self.ensure_db()
+        Alert, _AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             q = db.query(Alert).order_by(Alert.created_at.desc())
             if unread_only:
@@ -137,6 +150,7 @@ class AlertService:
 
     def count_unread(self, user_id: Optional[int] = None) -> dict[str, int]:
         self.ensure_db()
+        Alert, _AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             q = db.query(Alert).filter(Alert.is_read.is_(False))
             if user_id is not None:
@@ -154,6 +168,7 @@ class AlertService:
 
     def mark_read(self, alert_id: int, user_id: Optional[int] = None) -> bool:
         self.ensure_db()
+        Alert, _AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             a = db.get(Alert, alert_id)
             if not a:
@@ -166,6 +181,7 @@ class AlertService:
 
     def mark_all_read(self, user_id: Optional[int] = None) -> int:
         self.ensure_db()
+        Alert, _AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             q = db.query(Alert).filter(Alert.is_read.is_(False))
             if user_id is not None:
@@ -181,6 +197,7 @@ class AlertService:
 
     def delete_alert(self, alert_id: int, user_id: Optional[int] = None) -> bool:
         self.ensure_db()
+        Alert, _AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             a = db.get(Alert, alert_id)
             if not a:
@@ -195,6 +212,7 @@ class AlertService:
     def list_rules(self, user_id: Optional[int] = None) -> list[dict[str, Any]]:
         """User rules if any; else system defaults (not persisted)."""
         self.ensure_db()
+        _Alert, AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             q = db.query(AlertRule)
             if user_id is not None:
@@ -209,6 +227,7 @@ class AlertService:
 
     def get_rule_specs(self, user_id: Optional[int] = None) -> list[RuleSpec]:
         self.ensure_db()
+        _Alert, AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             q = db.query(AlertRule).filter(AlertRule.enabled.is_(True))
             if user_id is not None:
@@ -225,6 +244,7 @@ class AlertService:
     def seed_default_rules(self, user_id: Optional[int] = None) -> int:
         """Persist default rules for a user (or system if user_id is None)."""
         self.ensure_db()
+        _Alert, AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             q = db.query(AlertRule)
             if user_id is None:
@@ -269,6 +289,7 @@ class AlertService:
         if alert_type not in known_alert_types():
             raise ValueError(f"Unknown alert_type: {alert_type}")
         self.ensure_db()
+        _Alert, AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             if rule_id is not None:
                 row = db.get(AlertRule, rule_id)
@@ -295,6 +316,7 @@ class AlertService:
 
     def set_rule_enabled(self, rule_id: int, enabled: bool, user_id: Optional[int] = None) -> bool:
         self.ensure_db()
+        _Alert, AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             row = db.get(AlertRule, rule_id)
             if not row:
@@ -308,6 +330,7 @@ class AlertService:
 
     def delete_rule(self, rule_id: int, user_id: Optional[int] = None) -> bool:
         self.ensure_db()
+        _Alert, AlertRule = _alert_models()
         with db_session.SessionLocal() as db:
             row = db.get(AlertRule, rule_id)
             if not row:
@@ -336,7 +359,7 @@ class AlertService:
         Returns summary + list of created (or dry-run) alerts.
         """
         specs = rules if rules is not None else self.get_rule_specs(user_id)
-        engine = AlertEngine()
+        engine = _engine_cls()()
         result = engine.evaluate(
             holdings,
             specs,
@@ -484,7 +507,7 @@ class AlertService:
         return created
 
     # ------------------------------------------------------------------ helpers
-    def _persist_fired(self, f: FiredAlert, user_id: Optional[int] = None) -> Optional[dict[str, Any]]:
+    def _persist_fired(self, f, user_id: Optional[int] = None) -> Optional[dict[str, Any]]:
         return self.create_alert(
             alert_type=f.alert_type,
             title=f.title,
@@ -502,7 +525,7 @@ class AlertService:
         )
 
     @staticmethod
-    def _fired_to_dict(f: FiredAlert) -> dict[str, Any]:
+    def _fired_to_dict(f) -> dict[str, Any]:
         return {
             "alert_type": f.alert_type,
             "severity": f.severity,
@@ -519,7 +542,7 @@ class AlertService:
         }
 
     @staticmethod
-    def _to_dict(a: Alert) -> dict[str, Any]:
+    def _to_dict(a) -> dict[str, Any]:
         payload = None
         if a.payload:
             try:
@@ -546,7 +569,7 @@ class AlertService:
         }
 
     @staticmethod
-    def _rule_to_dict(r: AlertRule) -> dict[str, Any]:
+    def _rule_to_dict(r) -> dict[str, Any]:
         from services.alerts.rules import RULE_HELP
 
         return {
@@ -567,7 +590,7 @@ class AlertService:
         }
 
     @staticmethod
-    def _row_to_spec(r: AlertRule) -> RuleSpec:
+    def _row_to_spec(r) -> RuleSpec:
         return RuleSpec(
             id=r.id,
             user_id=r.user_id,

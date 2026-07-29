@@ -121,7 +121,7 @@ def test_service_persist_and_dedupe(isolated_db, monkeypatch):
         def __init__(self, fund_service=None):
             super().__init__(fund_service=_FakeFunds(nav))  # type: ignore[arg-type]
 
-    monkeypatch.setattr(svc_mod, "AlertEngine", Patched)
+    monkeypatch.setattr(svc_mod, "_engine_cls", lambda: Patched)
 
     holdings = [
         {
@@ -190,7 +190,7 @@ def test_evaluate_task_with_holdings(isolated_db, monkeypatch):
         def __init__(self, fund_service=None):
             super().__init__(fund_service=_FakeFunds(nav))  # type: ignore[arg-type]
 
-    monkeypatch.setattr(svc_mod, "AlertEngine", Patched)
+    monkeypatch.setattr(svc_mod, "_engine_cls", lambda: Patched)
 
     out = evaluate_alerts(
         holdings=[
