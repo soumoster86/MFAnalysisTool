@@ -103,7 +103,8 @@ python -c "import secrets; print(secrets.token_hex(32))"
 Heavy packages (`catboost`, `xgboost`, `lightgbm`) can slow the first build.  
 Wait for the first build (can take 10–20+ minutes). If it fails, check the Streamlit build log.
 
-`packages.txt` installs `libgomp1` for LightGBM on Linux.
+`packages.txt` installs `libgomp1` for LightGBM on Linux.  
+**Important:** Streamlit Cloud’s apt installer is picky — put **only package names** in `packages.txt` (no `#` comments, no blank-line-only quirks). Comments can cause `E: Unsupported file / given on commandline`.
 
 ### `ModuleNotFoundError: config` / imports
 Main file must be `frontend/app.py` (it adds the repo root to `sys.path`).
