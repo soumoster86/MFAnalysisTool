@@ -20,10 +20,13 @@ Cached risk metrics by period (`1Y`/`3Y`/`5Y`).
 Named portfolios and line items (units, invested, SIP).
 
 ### `alerts`
-Typed notifications with severity and read flag.
+Fired alerts: type, severity, title/message, optional `user_id` / `portfolio_id` / `rule_id`, `metric_value`, `threshold`, `fingerprint` (dedupe), read flag.
+
+### `alert_rules`
+User or system rules: `alert_type`, `threshold`, `lookback_days`, `severity`, `scope` (fund|portfolio), `enabled`.
 
 ### `users`
-JWT-ready stub (email, hashed_password, flags).
+JWT auth (email, hashed_password, flags).
 
 ## Migrations
 

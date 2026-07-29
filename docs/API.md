@@ -26,7 +26,14 @@ Interactive docs: `/docs` · ReDoc: `/redoc`
 | POST | `/api/v1/recommend` | Recommendation engine |
 | POST | `/api/v1/optimize` | Portfolio optimizer |
 | POST | `/api/v1/chat` | AI assistant |
-| GET | `/api/v1/alerts` | List alerts |
+| GET | `/api/v1/alerts` | List alerts (+ unread summary) |
+| GET | `/api/v1/alerts/summary` | Unread counts by severity |
+| POST | `/api/v1/alerts/evaluate` | Run real rules on holdings / vault |
+| POST | `/api/v1/alerts/{id}/read` | Mark one alert read |
+| POST | `/api/v1/alerts/read-all` | Mark all read |
+| GET | `/api/v1/alerts/rules` | List rules (defaults or user) |
+| POST | `/api/v1/alerts/rules` | Create/update rule (auth) |
+| POST | `/api/v1/alerts/rules/seed` | Seed default rules (auth) |
 | POST | `/api/v1/admin/sync-amfi` | Sync AMFI → SQLite |
 
 ## Example

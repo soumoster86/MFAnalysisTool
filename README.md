@@ -18,6 +18,7 @@ Not another plain screener — an investment assistant for understanding, compar
 | 4 | Portfolio Analyzer | ✅ Risk, correlation, concentration |
 | — | **MFCentral CAS Upload** | ✅ Import SoA + Demat holdings from CAS PDF |
 | — | **Portfolio Vault (Slice A)** | ✅ Register/login · save/load portfolios · CAS re-open |
+| — | **Real Alerts (Slice B)** | ✅ NAV/drawdown/P&L/concentration/overlap rules · vault eval · Celery beat |
 | 5 | Overlap Detector | ✅ Holdings / AMC / category overlap |
 | 6 | Fund Comparison | ✅ Up to 5 funds + AI summary |
 | 7 | Goal Planner | ✅ Monte Carlo, required SIP/return |
@@ -26,7 +27,7 @@ Not another plain screener — an investment assistant for understanding, compar
 | 10 | Portfolio Optimizer | ✅ MPT, risk parity, simple BL |
 | 11 | Fund X-Ray | ✅ Hidden risks, style, alternatives |
 | 12 | AI Assistant | ✅ OpenAI-compatible + offline fallback |
-| 13 | Alerts | ✅ Rules + Celery stubs |
+| 13 | Alerts | ✅ Real rules + evaluation engine + Celery beat schedule |
 | 14 | Visualizations | ✅ Plotly gallery |
 | 15 | Reports | ✅ PDF / Excel / PowerPoint |
 

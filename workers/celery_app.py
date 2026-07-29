@@ -26,6 +26,19 @@ try:
         enable_utc=True,
         task_track_started=True,
         task_always_eager=not settings.celery_enabled,  # run inline if disabled
+        # Slice B — periodic alert evaluation + AMFI refresh (requires celery beat)
+        beat_schedule={
+            "evaluate-vault-alerts-hourly": {
+                "task": "workers.tasks.evaluate_all_vault_alerts",
+                "schedule": 3600.0,  # seconds
+                "kwargs": {"max_users": 50, "max_funds": 15},
+            },
+            "refresh-amfi-daily": {
+                "task": "workers.tasks.refresh_amfi",
+                "schedule": 86400.0,
+                "kwargs": {"force": True},
+            },
+        },
     )
 except Exception as exc:  # pragma: no cover
     logger.warning("Celery not available: {}", exc)

@@ -2,7 +2,7 @@
 
 from models.fund import Fund, FundHolding, FundNAV, FundMetric
 from models.portfolio import Portfolio, PortfolioHolding
-from models.alert import Alert
+from models.alert import Alert, AlertRule
 from models.user import User
 
 __all__ = [
@@ -13,5 +13,6 @@ __all__ = [
     "Portfolio",
     "PortfolioHolding",
     "Alert",
+    "AlertRule",
     "User",
 ]

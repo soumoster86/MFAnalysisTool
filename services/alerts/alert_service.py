@@ -1,25 +1,56 @@
-"""Alert generation stubs (manager/expense/NAV events)."""
+"""Alert CRUD, rules, and evaluation orchestration (Slice B)."""
 
 from __future__ import annotations
 
-from datetime import datetime
+import json
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from database.session import SessionLocal, init_db
-from models.alert import Alert
+from database import session as db_session
+from models.alert import Alert, AlertRule
+from services.alerts.engine import AlertEngine, FiredAlert
+from services.alerts.rules import RuleSpec, default_rules, known_alert_types
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 
 class AlertService:
-    """Create, list, and seed demo alerts. Celery-ready hooks."""
+    """Create, list, configure rules, and evaluate real portfolio alerts."""
 
     def ensure_db(self) -> None:
-        init_db()
+        db_session.init_db()
+        self._ensure_schema()
 
+    def _ensure_schema(self) -> None:
+        """Best-effort column adds for older SQLite DBs."""
+        from sqlalchemy import text
+
+        url = str(db_session.engine.url)
+        if not url.startswith("sqlite"):
+            return
+        alters = [
+            ("alerts", "user_id", "INTEGER"),
+            ("alerts", "portfolio_id", "INTEGER"),
+            ("alerts", "rule_id", "INTEGER"),
+            ("alerts", "metric_value", "FLOAT"),
+            ("alerts", "threshold", "FLOAT"),
+            ("alerts", "fingerprint", "VARCHAR(256)"),
+            ("alerts", "payload", "TEXT"),
+        ]
+        try:
+            with db_session.engine.begin() as conn:
+                for table, col, typedef in alters:
+                    try:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}"))
+                    except Exception:
+                        pass
+        except Exception as exc:
+            logger.debug("Alert schema ensure skipped: {}", exc)
+
+    # ------------------------------------------------------------------ create / list
     def create_alert(
         self,
         *,
@@ -29,12 +60,29 @@ class AlertService:
         severity: str = "info",
         amfi_code: Optional[str] = None,
         scheme_name: Optional[str] = None,
+        user_id: Optional[int] = None,
+        portfolio_id: Optional[int] = None,
+        rule_id: Optional[int] = None,
+        metric_value: Optional[float] = None,
+        threshold: Optional[float] = None,
+        fingerprint: Optional[str] = None,
+        payload: Optional[dict[str, Any]] = None,
         db: Optional[Session] = None,
-    ) -> dict[str, Any]:
+        skip_dedupe: bool = False,
+    ) -> Optional[dict[str, Any]]:
         self.ensure_db()
         own = db is None
-        db = db or SessionLocal()
+        db = db or db_session.SessionLocal()
         try:
+            if fingerprint and not skip_dedupe:
+                since = datetime.utcnow() - timedelta(hours=20)
+                existing = (
+                    db.query(Alert)
+                    .filter(Alert.fingerprint == fingerprint, Alert.created_at >= since)
+                    .first()
+                )
+                if existing:
+                    return None  # already fired today
             alert = Alert(
                 alert_type=alert_type,
                 severity=severity,
@@ -42,6 +90,13 @@ class AlertService:
                 message=message,
                 amfi_code=amfi_code,
                 scheme_name=scheme_name,
+                user_id=user_id,
+                portfolio_id=portfolio_id,
+                rule_id=rule_id,
+                metric_value=metric_value,
+                threshold=threshold,
+                fingerprint=fingerprint,
+                payload=json.dumps(payload) if payload else None,
             )
             db.add(alert)
             db.commit()
@@ -51,39 +106,343 @@ class AlertService:
             if own:
                 db.close()
 
-    def list_alerts(self, unread_only: bool = False, limit: int = 50) -> list[dict[str, Any]]:
+    def list_alerts(
+        self,
+        *,
+        unread_only: bool = False,
+        limit: int = 50,
+        user_id: Optional[int] = None,
+        alert_type: Optional[str] = None,
+        severity: Optional[str] = None,
+        include_system: bool = True,
+    ) -> list[dict[str, Any]]:
         self.ensure_db()
-        with SessionLocal() as db:
+        with db_session.SessionLocal() as db:
             q = db.query(Alert).order_by(Alert.created_at.desc())
             if unread_only:
                 q = q.filter(Alert.is_read.is_(False))
+            if user_id is not None:
+                if include_system:
+                    from sqlalchemy import or_
+
+                    q = q.filter(or_(Alert.user_id == user_id, Alert.user_id.is_(None)))
+                else:
+                    q = q.filter(Alert.user_id == user_id)
+            if alert_type:
+                q = q.filter(Alert.alert_type == alert_type)
+            if severity:
+                q = q.filter(Alert.severity == severity)
             rows = q.limit(limit).all()
             return [self._to_dict(a) for a in rows]
 
-    def mark_read(self, alert_id: int) -> bool:
+    def count_unread(self, user_id: Optional[int] = None) -> dict[str, int]:
         self.ensure_db()
-        with SessionLocal() as db:
+        with db_session.SessionLocal() as db:
+            q = db.query(Alert).filter(Alert.is_read.is_(False))
+            if user_id is not None:
+                from sqlalchemy import or_
+
+                q = q.filter(or_(Alert.user_id == user_id, Alert.user_id.is_(None)))
+            rows = q.all()
+            by_sev = {"critical": 0, "warning": 0, "info": 0, "total": 0}
+            for a in rows:
+                by_sev["total"] += 1
+                sev = (a.severity or "info").lower()
+                if sev in by_sev:
+                    by_sev[sev] += 1
+            return by_sev
+
+    def mark_read(self, alert_id: int, user_id: Optional[int] = None) -> bool:
+        self.ensure_db()
+        with db_session.SessionLocal() as db:
             a = db.get(Alert, alert_id)
             if not a:
+                return False
+            if user_id is not None and a.user_id is not None and a.user_id != user_id:
                 return False
             a.is_read = True
             db.commit()
             return True
 
+    def mark_all_read(self, user_id: Optional[int] = None) -> int:
+        self.ensure_db()
+        with db_session.SessionLocal() as db:
+            q = db.query(Alert).filter(Alert.is_read.is_(False))
+            if user_id is not None:
+                from sqlalchemy import or_
+
+                q = q.filter(or_(Alert.user_id == user_id, Alert.user_id.is_(None)))
+            n = 0
+            for a in q.all():
+                a.is_read = True
+                n += 1
+            db.commit()
+            return n
+
+    def delete_alert(self, alert_id: int, user_id: Optional[int] = None) -> bool:
+        self.ensure_db()
+        with db_session.SessionLocal() as db:
+            a = db.get(Alert, alert_id)
+            if not a:
+                return False
+            if user_id is not None and a.user_id is not None and a.user_id != user_id:
+                return False
+            db.delete(a)
+            db.commit()
+            return True
+
+    # ------------------------------------------------------------------ rules
+    def list_rules(self, user_id: Optional[int] = None) -> list[dict[str, Any]]:
+        """User rules if any; else system defaults (not persisted)."""
+        self.ensure_db()
+        with db_session.SessionLocal() as db:
+            q = db.query(AlertRule)
+            if user_id is not None:
+                q = q.filter(AlertRule.user_id == user_id)
+            else:
+                q = q.filter(AlertRule.user_id.is_(None))
+            rows = q.order_by(AlertRule.id.asc()).all()
+            if rows:
+                return [self._rule_to_dict(r) for r in rows]
+        # Fallback: defaults as virtual rules (id=None)
+        return [r.to_dict() for r in default_rules()]
+
+    def get_rule_specs(self, user_id: Optional[int] = None) -> list[RuleSpec]:
+        self.ensure_db()
+        with db_session.SessionLocal() as db:
+            q = db.query(AlertRule).filter(AlertRule.enabled.is_(True))
+            if user_id is not None:
+                from sqlalchemy import or_
+
+                q = q.filter(or_(AlertRule.user_id == user_id, AlertRule.user_id.is_(None)))
+            else:
+                q = q.filter(AlertRule.user_id.is_(None))
+            rows = q.all()
+            if rows:
+                return [self._row_to_spec(r) for r in rows]
+        return default_rules()
+
+    def seed_default_rules(self, user_id: Optional[int] = None) -> int:
+        """Persist default rules for a user (or system if user_id is None)."""
+        self.ensure_db()
+        with db_session.SessionLocal() as db:
+            q = db.query(AlertRule)
+            if user_id is None:
+                q = q.filter(AlertRule.user_id.is_(None))
+            else:
+                q = q.filter(AlertRule.user_id == user_id)
+            if q.count() > 0:
+                return 0
+            n = 0
+            for spec in default_rules():
+                db.add(
+                    AlertRule(
+                        user_id=user_id,
+                        name=spec.name,
+                        alert_type=spec.alert_type,
+                        enabled=spec.enabled,
+                        threshold=spec.threshold,
+                        lookback_days=spec.lookback_days,
+                        severity=spec.severity,
+                        scope=spec.scope,
+                    )
+                )
+                n += 1
+            db.commit()
+            return n
+
+    def upsert_rule(
+        self,
+        *,
+        user_id: Optional[int],
+        name: str,
+        alert_type: str,
+        threshold: float,
+        lookback_days: int = 1,
+        severity: str = "warning",
+        scope: str = "fund",
+        enabled: bool = True,
+        rule_id: Optional[int] = None,
+        amfi_code: Optional[str] = None,
+        portfolio_id: Optional[int] = None,
+    ) -> dict[str, Any]:
+        if alert_type not in known_alert_types():
+            raise ValueError(f"Unknown alert_type: {alert_type}")
+        self.ensure_db()
+        with db_session.SessionLocal() as db:
+            if rule_id is not None:
+                row = db.get(AlertRule, rule_id)
+                if not row:
+                    raise ValueError("Rule not found")
+                if user_id is not None and row.user_id not in (None, user_id):
+                    raise ValueError("Not allowed to edit this rule")
+            else:
+                row = AlertRule(user_id=user_id)
+                db.add(row)
+            row.name = (name or alert_type)[:128]
+            row.alert_type = alert_type
+            row.threshold = float(threshold)
+            row.lookback_days = int(lookback_days)
+            row.severity = severity
+            row.scope = scope
+            row.enabled = bool(enabled)
+            row.amfi_code = amfi_code
+            row.portfolio_id = portfolio_id
+            row.updated_at = datetime.utcnow()
+            db.commit()
+            db.refresh(row)
+            return self._rule_to_dict(row)
+
+    def set_rule_enabled(self, rule_id: int, enabled: bool, user_id: Optional[int] = None) -> bool:
+        self.ensure_db()
+        with db_session.SessionLocal() as db:
+            row = db.get(AlertRule, rule_id)
+            if not row:
+                return False
+            if user_id is not None and row.user_id not in (None, user_id):
+                return False
+            row.enabled = enabled
+            row.updated_at = datetime.utcnow()
+            db.commit()
+            return True
+
+    def delete_rule(self, rule_id: int, user_id: Optional[int] = None) -> bool:
+        self.ensure_db()
+        with db_session.SessionLocal() as db:
+            row = db.get(AlertRule, rule_id)
+            if not row:
+                return False
+            if user_id is not None and row.user_id not in (None, user_id):
+                return False
+            db.delete(row)
+            db.commit()
+            return True
+
+    # ------------------------------------------------------------------ evaluate
+    def evaluate_portfolio(
+        self,
+        holdings: list[dict[str, Any]],
+        *,
+        user_id: Optional[int] = None,
+        portfolio_id: Optional[int] = None,
+        rules: Optional[list[RuleSpec]] = None,
+        max_funds: int = 25,
+        include_overlap: bool = True,
+        persist: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Run the real engine on holdings and optionally persist fired alerts.
+
+        Returns summary + list of created (or dry-run) alerts.
+        """
+        specs = rules if rules is not None else self.get_rule_specs(user_id)
+        engine = AlertEngine()
+        result = engine.evaluate(
+            holdings,
+            specs,
+            portfolio_id=portfolio_id,
+            max_funds=max_funds,
+            include_overlap=include_overlap,
+        )
+        created: list[dict[str, Any]] = []
+        if persist:
+            for f in result.fired:
+                row = self._persist_fired(f, user_id=user_id)
+                if row:
+                    created.append(row)
+        else:
+            created = [self._fired_to_dict(f) for f in result.fired]
+
+        return {
+            "status": "ok",
+            "alerts_created": len(created),
+            "candidates": len(result.fired),
+            "checked_rules": result.checked_rules,
+            "checked_funds": result.checked_funds,
+            "errors": result.errors[:20],
+            "skipped": result.skipped,
+            "alerts": created,
+        }
+
+    def evaluate_amfi_codes(
+        self,
+        amfi_codes: list[str],
+        *,
+        user_id: Optional[int] = None,
+        max_funds: int = 25,
+    ) -> dict[str, Any]:
+        holdings = [{"amfi_code": str(c), "scheme_name": str(c), "invested_amount": 1.0} for c in amfi_codes]
+        return self.evaluate_portfolio(
+            holdings,
+            user_id=user_id,
+            max_funds=max_funds,
+            include_overlap=False,
+        )
+
+    def evaluate_user_vault(
+        self,
+        user_id: int,
+        *,
+        portfolio_id: Optional[int] = None,
+        max_funds: int = 25,
+        include_overlap: bool = False,
+    ) -> dict[str, Any]:
+        """Evaluate vault portfolio(s) for a logged-in user."""
+        from services.portfolio.vault_service import PortfolioVaultService, VaultError
+
+        vault = PortfolioVaultService()
+        summaries: list[dict[str, Any]] = []
+        total_created = 0
+        if portfolio_id is not None:
+            try:
+                detail = vault.get_portfolio(portfolio_id, user_id)
+            except VaultError as exc:
+                return {"status": "error", "message": str(exc), "alerts_created": 0}
+            holdings = vault.holdings_for_analyzer(detail)
+            out = self.evaluate_portfolio(
+                holdings,
+                user_id=user_id,
+                portfolio_id=detail["id"],
+                max_funds=max_funds,
+                include_overlap=include_overlap,
+            )
+            total_created += out.get("alerts_created", 0)
+            summaries.append({"portfolio_id": detail["id"], "name": detail.get("name"), **out})
+        else:
+            for p in vault.list_portfolios(user_id):
+                try:
+                    detail = vault.get_portfolio(p["id"], user_id)
+                except VaultError:
+                    continue
+                holdings = vault.holdings_for_analyzer(detail)
+                if not holdings:
+                    continue
+                out = self.evaluate_portfolio(
+                    holdings,
+                    user_id=user_id,
+                    portfolio_id=detail["id"],
+                    max_funds=max_funds,
+                    include_overlap=include_overlap,
+                )
+                total_created += out.get("alerts_created", 0)
+                summaries.append(
+                    {
+                        "portfolio_id": detail["id"],
+                        "name": detail.get("name"),
+                        "alerts_created": out.get("alerts_created", 0),
+                        "checked_funds": out.get("checked_funds", 0),
+                    }
+                )
+        return {
+            "status": "ok",
+            "alerts_created": total_created,
+            "portfolios": summaries,
+        }
+
+    # ------------------------------------------------------------------ legacy hooks
     def seed_demo_alerts(self) -> int:
-        existing = self.list_alerts(limit=1)
-        if existing:
-            return 0
-        demos = [
-            ("nav_drop", "warning", "NAV soft patch detected", "Demo: portfolio sleeve down >3% over 5 sessions."),
-            ("manager_change", "critical", "Fund manager change (demo)", "Simulated manager exit on Mid Cap sleeve — review thesis."),
-            ("expense_ratio", "info", "TER update (demo)", "Expense ratio revised in last AMC circular (demo data)."),
-            ("drawdown", "warning", "Drawdown threshold", "Fund breached -15% peak drawdown alert level."),
-            ("overlap", "info", "High portfolio overlap", "Holding overlap across equity sleeves exceeded 40%."),
-        ]
-        for t, sev, title, msg in demos:
-            self.create_alert(alert_type=t, severity=sev, title=title, message=msg)
-        return len(demos)
+        """No longer auto-seeds fake alerts; kept for API compatibility."""
+        return 0
 
     def evaluate_nav_alerts(
         self,
@@ -92,42 +451,133 @@ class AlertService:
         daily_return: float,
         drawdown: float,
     ) -> list[dict[str, Any]]:
-        """Rule hooks callable from Celery tasks."""
+        """Backward-compatible single-fund hook used by older Celery tasks."""
         created = []
         if daily_return <= -0.03:
-            created.append(
-                self.create_alert(
-                    alert_type="nav_drop",
-                    severity="warning",
-                    title=f"NAV drop {daily_return:.1%}",
-                    message=f"{scheme_name} daily move {daily_return:.2%}.",
-                    amfi_code=amfi_code,
-                    scheme_name=scheme_name,
-                )
+            row = self.create_alert(
+                alert_type="nav_drop",
+                severity="warning",
+                title=f"NAV drop {daily_return:.1%}",
+                message=f"{scheme_name} daily move {daily_return:.2%}.",
+                amfi_code=amfi_code,
+                scheme_name=scheme_name,
+                metric_value=daily_return,
+                threshold=-0.03,
+                fingerprint=f"nav_drop:{amfi_code}:{datetime.utcnow().date().isoformat()}",
             )
+            if row:
+                created.append(row)
         if drawdown <= -0.15:
-            created.append(
-                self.create_alert(
-                    alert_type="drawdown",
-                    severity="critical",
-                    title=f"Drawdown {drawdown:.1%}",
-                    message=f"{scheme_name} peak drawdown at {drawdown:.1%}.",
-                    amfi_code=amfi_code,
-                    scheme_name=scheme_name,
-                )
+            row = self.create_alert(
+                alert_type="drawdown",
+                severity="critical",
+                title=f"Drawdown {drawdown:.1%}",
+                message=f"{scheme_name} peak drawdown at {drawdown:.1%}.",
+                amfi_code=amfi_code,
+                scheme_name=scheme_name,
+                metric_value=drawdown,
+                threshold=-0.15,
+                fingerprint=f"drawdown:{amfi_code}:{datetime.utcnow().date().isoformat()}",
             )
+            if row:
+                created.append(row)
         return created
+
+    # ------------------------------------------------------------------ helpers
+    def _persist_fired(self, f: FiredAlert, user_id: Optional[int] = None) -> Optional[dict[str, Any]]:
+        return self.create_alert(
+            alert_type=f.alert_type,
+            title=f.title,
+            message=f.message,
+            severity=f.severity,
+            amfi_code=f.amfi_code,
+            scheme_name=f.scheme_name,
+            user_id=user_id,
+            portfolio_id=f.portfolio_id,
+            rule_id=f.rule_id,
+            metric_value=f.metric_value,
+            threshold=f.threshold,
+            fingerprint=f.fingerprint,
+            payload=f.payload,
+        )
+
+    @staticmethod
+    def _fired_to_dict(f: FiredAlert) -> dict[str, Any]:
+        return {
+            "alert_type": f.alert_type,
+            "severity": f.severity,
+            "title": f.title,
+            "message": f.message,
+            "amfi_code": f.amfi_code,
+            "scheme_name": f.scheme_name,
+            "metric_value": f.metric_value,
+            "threshold": f.threshold,
+            "fingerprint": f.fingerprint,
+            "payload": f.payload,
+            "rule_id": f.rule_id,
+            "portfolio_id": f.portfolio_id,
+        }
 
     @staticmethod
     def _to_dict(a: Alert) -> dict[str, Any]:
+        payload = None
+        if a.payload:
+            try:
+                payload = json.loads(a.payload)
+            except Exception:
+                payload = a.payload
         return {
             "id": a.id,
+            "user_id": a.user_id,
+            "portfolio_id": a.portfolio_id,
+            "rule_id": a.rule_id,
             "alert_type": a.alert_type,
             "severity": a.severity,
             "title": a.title,
             "message": a.message,
             "amfi_code": a.amfi_code,
             "scheme_name": a.scheme_name,
+            "metric_value": a.metric_value,
+            "threshold": a.threshold,
+            "fingerprint": a.fingerprint,
+            "payload": payload,
             "is_read": a.is_read,
             "created_at": a.created_at.isoformat() if a.created_at else None,
         }
+
+    @staticmethod
+    def _rule_to_dict(r: AlertRule) -> dict[str, Any]:
+        from services.alerts.rules import RULE_HELP
+
+        return {
+            "id": r.id,
+            "user_id": r.user_id,
+            "name": r.name,
+            "alert_type": r.alert_type,
+            "enabled": r.enabled,
+            "threshold": r.threshold,
+            "lookback_days": r.lookback_days,
+            "severity": r.severity,
+            "scope": r.scope,
+            "amfi_code": r.amfi_code,
+            "portfolio_id": r.portfolio_id,
+            "help": RULE_HELP.get(r.alert_type, ""),
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        }
+
+    @staticmethod
+    def _row_to_spec(r: AlertRule) -> RuleSpec:
+        return RuleSpec(
+            id=r.id,
+            user_id=r.user_id,
+            name=r.name,
+            alert_type=r.alert_type,
+            threshold=float(r.threshold),
+            lookback_days=int(r.lookback_days or 1),
+            severity=r.severity or "warning",
+            scope=r.scope or "fund",
+            enabled=bool(r.enabled),
+            amfi_code=r.amfi_code,
+            portfolio_id=r.portfolio_id,
+        )

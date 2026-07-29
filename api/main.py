@@ -29,12 +29,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Auth + portfolio vault (Slice A)
+# Auth + portfolio vault (Slice A) + alerts (Slice B)
 from api.routes.auth import router as auth_router
 from api.routes.portfolios import router as portfolios_router
+from api.routes.alerts import router as alerts_router
 
 app.include_router(auth_router)
 app.include_router(portfolios_router)
+app.include_router(alerts_router)
 
 
 class PortfolioHoldingIn(BaseModel):
@@ -245,15 +247,6 @@ def chat(body: ChatRequest) -> dict[str, Any]:
     assistant = FinancialAssistant()
     ctx = assistant.build_context(extra=body.context_extra)
     return assistant.chat(body.message, context=ctx)
-
-
-@app.get("/api/v1/alerts")
-def list_alerts(unread_only: bool = False) -> dict[str, Any]:
-    from services.alerts.alert_service import AlertService
-
-    svc = AlertService()
-    svc.seed_demo_alerts()
-    return {"alerts": svc.list_alerts(unread_only=unread_only)}
 
 
 @app.post("/api/v1/admin/sync-amfi")

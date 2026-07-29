@@ -1,8 +1,8 @@
-"""Background tasks: AMFI refresh, alert evaluation (Celery stubs)."""
+"""Background tasks: AMFI refresh, alert evaluation (Celery-ready)."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from utils.logging_config import get_logger
 
@@ -54,31 +54,108 @@ def refresh_nav_history(amfi_codes: list[str] | None = None, years: float = 5.0)
 
 
 @_task("workers.tasks.evaluate_alerts")
-def evaluate_alerts(amfi_codes: list[str] | None = None) -> dict[str, Any]:
-    from services.alerts.alert_service import AlertService
-    from services.data.fund_service import FundService
+def evaluate_alerts(
+    amfi_codes: list[str] | None = None,
+    holdings: list[dict[str, Any]] | None = None,
+    user_id: Optional[int] = None,
+    portfolio_id: Optional[int] = None,
+    include_overlap: bool = False,
+    max_funds: int = 25,
+) -> dict[str, Any]:
+    """
+    Slice B: evaluate real alert rules.
 
-    funds = FundService()
+    Prefer `holdings` (session/CAS/vault rows). Fall back to amfi_codes only
+    (NAV/drawdown rules). Vault path: pass user_id (+ optional portfolio_id).
+    """
+    from services.alerts.alert_service import AlertService
+
+    alerts = AlertService()
+
+    # Full vault scan for a user
+    if user_id is not None and holdings is None and not amfi_codes:
+        out = alerts.evaluate_user_vault(
+            user_id,
+            portfolio_id=portfolio_id,
+            max_funds=max_funds,
+            include_overlap=include_overlap,
+        )
+        logger.info(
+            "Vault alert eval user={} created={}",
+            user_id,
+            out.get("alerts_created"),
+        )
+        return out
+
+    if holdings:
+        out = alerts.evaluate_portfolio(
+            holdings,
+            user_id=user_id,
+            portfolio_id=portfolio_id,
+            max_funds=max_funds,
+            include_overlap=include_overlap,
+        )
+        logger.info("Holdings alert eval created={}", out.get("alerts_created"))
+        return out
+
+    codes = amfi_codes or []
+    if not codes:
+        return {"status": "ok", "alerts_created": 0, "message": "No codes or holdings"}
+
+    out = alerts.evaluate_amfi_codes(codes, user_id=user_id, max_funds=max_funds)
+    logger.info("AMFI-code alert eval created={}", out.get("alerts_created"))
+    return out
+
+
+@_task("workers.tasks.evaluate_all_vault_alerts")
+def evaluate_all_vault_alerts(
+    max_users: int = 50,
+    max_funds: int = 15,
+) -> dict[str, Any]:
+    """
+    Scheduled beat task: evaluate default vault portfolios for recent users.
+
+    Requires Redis + Celery worker when celery_enabled=true; otherwise runs inline.
+    """
+    from models.user import User
+    from database import session as db_session
+    from services.alerts.alert_service import AlertService
+
+    db_session.init_db()
     alerts = AlertService()
     created = 0
-    codes = amfi_codes or []
-    for code in codes:
+    scanned = 0
+    errors: list[str] = []
+
+    with db_session.SessionLocal() as db:
+        users = (
+            db.query(User)
+            .filter(User.is_active.is_(True))
+            .order_by(User.id.desc())
+            .limit(max_users)
+            .all()
+        )
+        user_ids = [u.id for u in users]
+
+    for uid in user_ids:
         try:
-            nav = funds.get_nav_history(code)
-            if len(nav) < 2:
-                continue
-            daily = float(nav.iloc[-1] / nav.iloc[-2] - 1)
-            peak = nav.cummax()
-            dd = float((nav.iloc[-1] - peak.iloc[-1]) / peak.iloc[-1]) if peak.iloc[-1] else 0
-            meta = funds.get_fund_meta(code)
-            created += len(
-                alerts.evaluate_nav_alerts(
-                    meta.get("scheme_name") or code, code, daily, dd
-                )
+            out = alerts.evaluate_user_vault(
+                uid,
+                max_funds=max_funds,
+                include_overlap=False,
             )
+            created += int(out.get("alerts_created") or 0)
+            scanned += 1
         except Exception as exc:
-            logger.warning("Alert eval failed for {}: {}", code, exc)
-    return {"status": "ok", "alerts_created": created}
+            errors.append(f"user {uid}: {exc}")
+            logger.warning("Vault alert beat failed user={}: {}", uid, exc)
+
+    return {
+        "status": "ok",
+        "users_scanned": scanned,
+        "alerts_created": created,
+        "errors": errors[:20],
+    }
 
 
 @_task("workers.tasks.train_fund_model")

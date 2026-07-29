@@ -80,9 +80,10 @@ Business rules live in `analytics/` and `ml/`. IO and orchestration live in `ser
 ## Production roadmap
 
 1. ~~Real historical NAV + holdings vendor~~ (mfapi + Groww)
-2. PostgreSQL + Alembic migrations (SQLAlchemy ready; SQLite default)
+2. PostgreSQL + Alembic migrations (SQLAlchemy ready; SQLite default / Neon cloud)
 3. ~~JWT auth multi-user portfolios~~ (Slice A — vault)
-4. Celery beat schedules for alerts
-5. React/Next.js Phase 2 frontend against FastAPI
+4. ~~Real alerts + Celery beat schedule~~ (Slice B — see [ALERTS.md](ALERTS.md))
+5. True XIRR / cashflow returns from CAS (Slice C)
+6. React/Next.js Phase 2 frontend against FastAPI
 
-See also: [PORTFOLIO_VAULT.md](PORTFOLIO_VAULT.md)
+See also: [PORTFOLIO_VAULT.md](PORTFOLIO_VAULT.md) · [ALERTS.md](ALERTS.md)
