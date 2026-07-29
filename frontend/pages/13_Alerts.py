@@ -364,10 +364,22 @@ Beat schedule: hourly vault alert scan + daily AMFI refresh.
         """
     )
     st.markdown("**Alert table schema**")
+    _report = getattr(AlertService, "schema_report", {}) or {}
+    _problems = (_report.get("failed") or []) + (_report.get("still_missing") or [])
+    if _problems:
+        st.error("Schema repair incomplete — see details below.")
+    else:
+        st.caption(
+            f"OK · `{_report.get('dialect', '?')}` · "
+            f"{len(_report.get('alerts_before') or [])} columns on `alerts` · "
+            f"{len(_report.get('added') or [])} repaired this run"
+        )
     if st.button("Run schema repair now"):
         svc.ensure_db()
         st.rerun()
-    st.json(getattr(AlertService, "schema_report", {}) or {"report": "not populated yet"})
+    # Raw report is verbose — only worth showing when it is actually needed.
+    if _problems or st.checkbox("Show raw schema diagnostics", value=False):
+        st.json(_report or {"report": "not populated yet"})
 
     if st.button("Run full vault scan now (all users)"):
         try:
