@@ -14,6 +14,7 @@ from frontend.components.charts import (
 from frontend.components.ui_blocks import insight_cards
 from frontend.state import get_fund_service
 from frontend.theme import apply_theme
+from services.data.market_client import get_market_client
 from utils.helpers import pct
 
 apply_theme()
@@ -283,4 +284,61 @@ if hold_bundle and hold_bundle.get("df") is not None:
     st.markdown("---")
     st.subheader("Holdings preview")
     st.caption(f"Source: `{hold_bundle.get('source')}`")
-    st.dataframe(hold_bundle["df"].head(25), use_container_width=True, hide_index=True)
+    live, matched = get_market_client().enrich_holdings(hold_bundle["df"].head(25))
+    if matched:
+        st.caption(f"Live BSE quotes matched for {matched} of the top holdings.")
+        st.dataframe(live, use_container_width=True, hide_index=True)
+    else:
+        st.dataframe(hold_bundle["df"].head(25), use_container_width=True, hide_index=True)
+
+# ---------------------------------------------------------------------------
+# Module 2: portfolio turnover + dividend history
+# ---------------------------------------------------------------------------
+st.markdown("---")
+st.subheader("Costs & distributions")
+
+tcol1, tcol2 = st.columns(2)
+try:
+    enriched_meta = svc.get_enriched_meta(code, scheme_name)
+except Exception:
+    enriched_meta = {}
+
+turnover = enriched_meta.get("portfolio_turnover")
+tcol1.metric(
+    "Portfolio turnover",
+    f"{float(turnover):.0f}%" if turnover is not None else "—",
+    help=(
+        "Share of the book traded over a year. High turnover means transaction "
+        "costs the TER does not show."
+    ),
+)
+tcol2.metric(
+    "Expense ratio",
+    f"{float(enriched_meta['expense_ratio']):.2f}%"
+    if enriched_meta.get("expense_ratio") is not None
+    else "—",
+)
+
+if st.button("Load dividend / IDCW history"):
+    with st.spinner("Resolving distributions…"):
+        try:
+            rows, note = svc.get_dividends(code, scheme_name)
+            st.session_state.setdefault("div_cache", {})[code] = (rows, note)
+        except Exception as exc:
+            st.error(f"Could not load distributions: {exc}")
+
+div_bundle = st.session_state.get("div_cache", {}).get(code)
+if div_bundle:
+    rows, note = div_bundle
+    if rows:
+        # A derived figure is an estimate; saying so is not optional.
+        if any(r.get("source") == "derived" for r in rows):
+            st.warning(
+                "These distributions are **estimated** from NAV divergence against "
+                "the Growth plan, not reported by the provider. Treat them as "
+                "indicative."
+            )
+        st.caption(note)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    else:
+        st.info(note)

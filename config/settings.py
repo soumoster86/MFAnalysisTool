@@ -78,6 +78,13 @@ class Settings(BaseSettings):
     # Leave unset/empty for models that only allow default temperature (e.g. gpt-5.6-sol)
     openai_temperature: Optional[float] = None
 
+    # Retrieval. TF-IDF is the default because it needs no key and works
+    # offline; embeddings are better at paraphrase but cost a network call.
+    rag_enabled: bool = True
+    rag_use_embeddings: bool = False
+    rag_embedding_model: str = "text-embedding-3-small"
+    rag_top_k: int = 4
+
     # Data
     amfi_nav_url: str = "https://www.amfiindia.com/spages/NAVAll.txt"
     # Historical NAV providers

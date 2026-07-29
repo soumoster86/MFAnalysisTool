@@ -13,13 +13,27 @@ from services.data.provenance import Provenance
 apply_theme()
 
 st.title("AI Financial Assistant")
-st.caption("OpenAI-compatible LLM · RAG-lite context from portfolio · offline glossary fallback")
+st.caption(
+    "Retrieval-grounded answers with citations · portfolio context · "
+    "works without an API key"
+)
 
 assistant = FinancialAssistant()
 if assistant.is_configured:
     st.success(f"Connected · model `{assistant.model}`")
 else:
-    st.warning("No OPENAI_API_KEY — using offline education engine. Add key to `.env`.")
+    st.info(
+        "No OPENAI_API_KEY — answers come straight from the knowledge base with "
+        "citations, without a model to summarise them."
+    )
+
+try:
+    from services.ai.retriever import get_retriever
+
+    _r = get_retriever()
+    st.caption(f"Knowledge base: **{_r.size}** passages · retrieval `{_r.backend}`")
+except Exception as _exc:
+    st.caption(f"Knowledge base unavailable: {_exc}")
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
@@ -93,6 +107,9 @@ if prompt:
                 ][-8:],
             )
         st.markdown(out["reply"])
+        cites = out.get("citations") or []
+        if cites:
+            st.caption("Sources: " + " · ".join(f"`{c}`" for c in cites))
         st.caption(f"source={out['source']} model={out.get('model')}")
     st.session_state.chat_history.append({"role": "assistant", "content": out["reply"]})
 

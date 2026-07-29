@@ -13,6 +13,7 @@ from frontend.components.charts import (
 )
 from frontend.components.provenance import render_provenance
 from frontend.state import get_cached_analysis, init_portfolio_holdings
+from services.data.market_client import get_market_client
 from frontend.theme import apply_theme, score_class
 from utils.helpers import format_inr, pct
 
@@ -77,6 +78,25 @@ else:
         )
 
 render_provenance(analysis.data_sources, what="These portfolio figures")
+
+# ---- Live market board (NSE) ----
+try:
+    _indices = get_market_client().get_indices()
+except Exception:
+    _indices = None
+if _indices is not None and not _indices.empty:
+    _watch = ["NIFTY 50", "NIFTY NEXT 50", "NIFTY BANK", "NIFTY MIDCAP 100", "NIFTY 500"]
+    _rows = _indices[_indices["index"].isin(_watch)]
+    if not _rows.empty:
+        mcols = st.columns(len(_rows))
+        for _i, (_, _r) in enumerate(_rows.iterrows()):
+            _pct = _r.get("pct_change")
+            mcols[_i].metric(
+                str(_r["index"]).replace("NIFTY ", "N"),
+                f"{float(_r['last']):,.0f}" if _r.get("last") is not None else "—",
+                delta=f"{float(_pct):+.2f}%" if _pct is not None else None,
+            )
+        st.caption("Live index levels from NSE.")
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Portfolio Value", format_inr(analysis.total_current))

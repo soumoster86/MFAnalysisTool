@@ -41,6 +41,8 @@ class Fund(Base):
     launch_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     aum_cr: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     riskometer: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Percent of the book traded over the year (Module 2 / cost analysis).
+    portfolio_turnover: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     isin_growth: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     isin_div: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     cash_allocation: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -60,6 +62,9 @@ class Fund(Base):
     holdings: Mapped[list["FundHolding"]] = relationship(back_populates="fund", cascade="all, delete-orphan")
     navs: Mapped[list["FundNAV"]] = relationship(back_populates="fund", cascade="all, delete-orphan")
     metrics: Mapped[list["FundMetric"]] = relationship(back_populates="fund", cascade="all, delete-orphan")
+    dividends: Mapped[list["FundDividend"]] = relationship(
+        back_populates="fund", cascade="all, delete-orphan"
+    )
 
 
 class FundNAV(Base):
@@ -120,3 +125,32 @@ class FundMetric(Base):
     health_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     fund: Mapped["Fund"] = relationship(back_populates="metrics")
+
+
+class FundDividend(Base):
+    """One IDCW / dividend distribution for a fund.
+
+    `source` records how the row was obtained and must be shown alongside it:
+
+    - ``provider`` — reported by the data provider, authoritative.
+    - ``derived``  — inferred from an IDCW plan's NAV falling further than its
+      Growth sibling on the same day. That divergence is what a distribution
+      looks like in NAV data, but it is an estimate, not a reported figure.
+
+    Providers currently expose only Direct Growth plans, so most rows will be
+    derived. Presenting an estimate as a reported payout would be a fabrication.
+    """
+
+    __tablename__ = "fund_dividends"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    fund_id: Mapped[int] = mapped_column(ForeignKey("funds.id", ondelete="CASCADE"), index=True)
+    record_date: Mapped[date] = mapped_column(Date, index=True)
+    amount_per_unit: Mapped[float] = mapped_column(Float, default=0.0)
+    nav_before: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    nav_after: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    payout_type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # idcw|bonus
+    source: Mapped[str] = mapped_column(String(32), default="derived")
+    confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    fund: Mapped["Fund"] = relationship(back_populates="dividends")

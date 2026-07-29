@@ -39,9 +39,32 @@ class FundService:
         self._nav_source: dict[str, str] = {}
         self._holdings_source: dict[str, str] = {}
 
+    # Repaired once per process — reflection on every call would be wasteful.
+    _schema_checked = False
+
     def ensure_db(self) -> None:
         settings.data_cache_dir.mkdir(parents=True, exist_ok=True)
         init_db()
+        # create_all() never adds columns to an existing table, so a database
+        # created before a model gained a field keeps the old shape and every
+        # query on that field fails. Same defect that broke alerts and the
+        # vault; the fund tables need the same repair.
+        if not FundService._schema_checked:
+            FundService._schema_checked = True
+            try:
+                from database import schema_repair
+                from models.fund import Fund, FundDividend, FundHolding, FundMetric, FundNAV
+
+                schema_repair.ensure_tables(
+                    Fund.__table__,
+                    FundNAV.__table__,
+                    FundHolding.__table__,
+                    FundMetric.__table__,
+                    FundDividend.__table__,
+                    label="funds",
+                )
+            except Exception as exc:
+                logger.warning("Fund schema repair skipped: {}", exc)
 
     def sync_amfi_to_db(self, limit: Optional[int] = None, force: bool = False) -> int:
         """Upsert AMFI schemes into SQLite. Returns count upserted."""
@@ -392,6 +415,11 @@ class FundService:
                         fund.expense_ratio = float(meta["expense_ratio"])
                     if meta.get("aum_cr") is not None:
                         fund.aum_cr = float(meta["aum_cr"])
+                    if meta.get("portfolio_turnover") is not None:
+                        try:
+                            fund.portfolio_turnover = float(meta["portfolio_turnover"])
+                        except (TypeError, ValueError):
+                            pass
                     if meta.get("fund_manager"):
                         fund.fund_manager = str(meta["fund_manager"])[:256]
                     if meta.get("benchmark"):
@@ -490,12 +518,40 @@ class FundService:
             "aum_cr": aum,
             "manager_tenure": tenure,
             "fund_manager": manager,
+            "portfolio_turnover": enriched.get("portfolio_turnover")
+            or meta.get("portfolio_turnover"),
             "data_sources": {
                 "nav": self.get_nav_source(amfi_code) or nav.attrs.get("source"),
                 "holdings": self.get_holdings_source(amfi_code),
                 "meta_enrichment": "groww" if enriched else "amfi_only",
             },
         }
+
+    def get_dividends(
+        self, amfi_code: str, scheme_name: Optional[str] = None, years: float = 5.0
+    ) -> tuple[list[dict[str, Any]], str]:
+        """IDCW distribution history plus a note on how it was obtained.
+
+        Returns ``(rows, note)``. Rows carry a ``source`` of ``provider`` or
+        ``derived`` — see services.data.dividends. Callers must show the note;
+        a derived figure is an estimate, not a reported payout.
+        """
+        from services.data.dividends import dividend_history
+
+        code = str(amfi_code)
+        name = scheme_name or self.get_fund_meta(code).get("scheme_name")
+        detail = None
+        try:
+            detail = self.holdings_client.fetch_scheme_detail(
+                self.holdings_client.resolve_search_id(code, name) or "", use_cache=True
+            )
+        except Exception:
+            detail = None
+
+        rows, note = dividend_history(
+            self, code, name, years=years, provider_detail=detail
+        )
+        return [d.to_dict() for d in rows], note
 
     def seed_demo_holdings(self, amfi_codes: list[str]) -> None:
         """Force-refresh holdings for codes (live first)."""

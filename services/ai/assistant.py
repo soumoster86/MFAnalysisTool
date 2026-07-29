@@ -1,4 +1,16 @@
-"""LLM-powered financial assistant (OpenAI-compatible) with RAG-lite context."""
+"""LLM-powered financial assistant (OpenAI-compatible) with retrieval.
+
+Answers are grounded in two separate sources, kept distinct on purpose:
+
+- **KNOWLEDGE BASE** — passages retrieved from `docs/kb/` for the question
+  asked, each carrying a citation. General finance and how this app computes.
+- **CONTEXT** — the user's actual portfolio figures, injected by the caller
+  along with any provenance caveat.
+
+Retrieval is word-based, so a retrieved passage is not guaranteed relevant.
+The prompt says so explicitly: the model must ignore passages that do not bear
+on the question rather than stretch one into an answer.
+"""
 
 from __future__ import annotations
 
@@ -20,6 +32,17 @@ STRICT RULES:
 5. If data is missing, say so and explain what is needed.
 6. Match the user's requested style (beginner / Warren Buffett / with examples) when asked.
 7. Explain Alpha, Beta, Sharpe, Sortino, Drawdown, Expense Ratio clearly when asked.
+
+USING THE KNOWLEDGE BASE:
+8. When a KNOWLEDGE BASE block is present, prefer it over your own recollection
+   for definitions, formulas and how this application computes things, and cite
+   the passage you used by its [source] tag.
+9. Retrieved passages are matched by keyword and MAY BE IRRELEVANT to the
+   question. Ignore any passage that does not bear on what was asked. Never
+   claim a passage supports a statement it does not contain, and never cite a
+   [source] tag that was not given to you.
+10. If neither the KNOWLEDGE BASE nor the CONTEXT covers the question, say you
+    do not have that information rather than filling the gap.
 """
 
 
@@ -75,6 +98,18 @@ class FinancialAssistant:
             parts.append("No portfolio/fund metrics were injected for this turn.")
         return "\n".join(parts)
 
+    def retrieve(self, query: str, k: Optional[int] = None) -> list[Any]:
+        """Knowledge-base passages relevant to `query`. Never raises."""
+        if not getattr(settings, "rag_enabled", True):
+            return []
+        try:
+            from services.ai.retriever import get_retriever
+
+            return get_retriever().search(query, k=k or settings.rag_top_k)
+        except Exception as exc:
+            logger.warning("Retrieval unavailable: {}", exc)
+            return []
+
     def chat(
         self,
         user_message: str,
@@ -82,19 +117,27 @@ class FinancialAssistant:
         context: str = "",
         history: Optional[list[dict[str, str]]] = None,
         temperature: Optional[float] = None,
+        retrieve: bool = True,
     ) -> dict[str, Any]:
         """
-        Returns {reply, source, model, error?}.
+        Returns {reply, source, model, citations, error?}.
         Falls back to deterministic education engine if no API key.
+
+        Retrieved knowledge and portfolio CONTEXT are passed as separate blocks
+        so the model can tell general guidance from the user's own figures.
 
         Temperature is omitted for models that only support the API default
         (e.g. gpt-5.6-sol). Override via arg or OPENAI_TEMPERATURE in settings.
         """
+        passages = self.retrieve(user_message) if retrieve else []
+        citations = [p.citation for p in passages]
+
         if not self.is_configured:
             return {
-                "reply": self._offline_reply(user_message, context),
+                "reply": self._offline_reply(user_message, context, passages),
                 "source": "offline_rules",
                 "model": None,
+                "citations": citations,
                 "error": None,
             }
 
@@ -103,6 +146,12 @@ class FinancialAssistant:
 
             client = OpenAI(api_key=self.api_key, base_url=self.base_url or None)
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            if passages:
+                from services.ai.retriever import get_retriever
+
+                messages.append(
+                    {"role": "system", "content": get_retriever().as_context(passages)}
+                )
             if context:
                 messages.append({"role": "system", "content": context})
             for h in history or []:
@@ -144,20 +193,47 @@ class FinancialAssistant:
                 "reply": reply,
                 "source": "openai_compatible",
                 "model": self.model,
+                "citations": citations,
                 "error": None,
             }
         except Exception as exc:
             logger.error("LLM call failed: {}", exc)
             return {
-                "reply": self._offline_reply(user_message, context)
+                "reply": self._offline_reply(user_message, context, passages)
                 + f"\n\n_(LLM error: {exc}. Showing offline answer.)_",
                 "source": "offline_fallback",
                 "model": self.model,
                 "error": str(exc),
             }
 
-    def _offline_reply(self, message: str, context: str) -> str:
+    @staticmethod
+    def _passages_reply(passages: list[Any]) -> str:
+        """Answer straight from retrieved passages, with citations.
+
+        Without an API key there is no model to summarise with, so quote the
+        source rather than paraphrasing it — a paraphrase written by no one is
+        exactly the kind of unattributable claim the rules forbid.
+        """
+        best = passages[0]
+        body = best.document.text.strip()
+        if len(body) > 1200:
+            body = body[:1200].rsplit("\n", 1)[0] + "\n\n…"
+        out = [body, f"\n_Source: {best.citation}_"]
+        others = [p.citation for p in passages[1:3]]
+        if others:
+            out.append("_Related: " + " · ".join(others) + "_")
+        return "\n".join(out)
+
+    def _offline_reply(
+        self, message: str, context: str, passages: Optional[list[Any]] = None
+    ) -> str:
         m = message.lower().strip()
+
+        # Retrieved knowledge is richer than the hand-written glossary below and
+        # carries a citation, so prefer it whenever retrieval found a match.
+        if passages:
+            return self._passages_reply(passages) + self._ctx_footer(context)
+
         glossary = {
             "alpha": (
                 "**Alpha** measures excess return vs a benchmark after adjusting for market risk. "
