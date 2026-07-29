@@ -107,6 +107,98 @@ def evaluate_alerts(
     return out
 
 
+@_task("workers.tasks.detect_fund_changes")
+def detect_fund_changes(
+    amfi_codes: list[str] | None = None,
+    holdings: list[dict[str, Any]] | None = None,
+    user_id: Optional[int] = None,
+    portfolio_id: Optional[int] = None,
+    max_funds: int = 25,
+) -> dict[str, Any]:
+    """Snapshot funds and alert on manager / TER / category / benchmark /
+    holdings / sector / risk changes.
+
+    Meant to run on a slow cadence (daily). Fund attributes change on the
+    order of weeks, and each run costs one meta + holdings fetch per fund.
+    """
+    from services.alerts.alert_service import AlertService
+
+    rows = holdings or [
+        {"amfi_code": str(c), "scheme_name": str(c)} for c in (amfi_codes or [])
+    ]
+    if not rows:
+        return {"status": "ok", "alerts_created": 0, "message": "No codes or holdings"}
+
+    out = AlertService().detect_fund_changes(
+        rows,
+        user_id=user_id,
+        portfolio_id=portfolio_id,
+        max_funds=max_funds,
+    )
+    logger.info(
+        "Change detection created={} baselines={} funds={}",
+        out.get("alerts_created"),
+        out.get("baselines"),
+        out.get("checked_funds"),
+    )
+    return out
+
+
+@_task("workers.tasks.detect_all_vault_changes")
+def detect_all_vault_changes(max_users: int = 50, max_funds: int = 15) -> dict[str, Any]:
+    """Beat task: run change detection over recent users' default portfolios."""
+    from database import session as db_session
+    from models.user import User
+    from services.alerts.alert_service import AlertService
+    from services.portfolio.vault_service import PortfolioVaultService
+
+    db_session.init_db()
+    alerts = AlertService()
+    vault = PortfolioVaultService()
+    scanned = 0
+    created = 0
+    baselines = 0
+    errors: list[str] = []
+
+    with db_session.SessionLocal() as db:
+        users = (
+            db.query(User)
+            .filter(User.is_active.is_(True))
+            .order_by(User.id.desc())
+            .limit(max_users)
+            .all()
+        )
+        user_ids = [u.id for u in users]
+
+    for uid in user_ids:
+        try:
+            portfolios = vault.list_portfolios(uid)
+            if not portfolios:
+                continue
+            target = next((p for p in portfolios if p.get("is_default")), portfolios[0])
+            detail = vault.get_portfolio(target["id"], uid)
+            rows = vault.holdings_for_analyzer(detail)
+            if not rows:
+                continue
+            out = alerts.detect_fund_changes(
+                rows, user_id=uid, portfolio_id=target["id"], max_funds=max_funds
+            )
+            scanned += 1
+            created += out.get("alerts_created", 0)
+            baselines += out.get("baselines", 0)
+        except Exception as exc:
+            errors.append(f"user {uid}: {exc}")
+            logger.warning("Change detection beat failed user={}: {}", uid, exc)
+
+    return {
+        "status": "ok",
+        "users_scanned": scanned,
+        "alerts_created": created,
+        "baselines": baselines,
+        "errors": errors[:10],
+    }
+
+
 @_task("workers.tasks.evaluate_all_vault_alerts")
 def evaluate_all_vault_alerts(
     max_users: int = 50,

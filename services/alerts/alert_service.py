@@ -13,8 +13,9 @@ from database import session as db_session
 
 # NEVER import Alert/AlertRule from models.alert here — that path caused
 # Streamlit Cloud circular ImportError: cannot import name 'AlertRule'.
-from services.alerts.db_models import ALERT_ORM_VERSION, Alert, AlertRule
-from services.alerts.rules import RuleSpec, default_rules, known_alert_types
+from services.alerts.change_detector import Change, Snapshot, build_snapshot, detect_changes
+from services.alerts.db_models import ALERT_ORM_VERSION, Alert, AlertRule, FundSnapshot
+from services.alerts.rules import RuleSpec, default_rules, is_change_type, known_alert_types
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -50,7 +51,7 @@ class AlertService:
         touches Alert.user_id failed with UndefinedColumn until repaired.
         """
         AlertService.schema_report = schema_repair.ensure_tables(
-            Alert.__table__, AlertRule.__table__, label="alerts"
+            Alert.__table__, AlertRule.__table__, FundSnapshot.__table__, label="alerts"
         )
 
     # ------------------------------------------------------------------ create / list
@@ -196,7 +197,7 @@ class AlertService:
 
     # ------------------------------------------------------------------ rules
     def list_rules(self, user_id: Optional[int] = None) -> list[dict[str, Any]]:
-        """User rules if any; else system defaults (not persisted)."""
+        """Stored rules, plus unpersisted defaults for any type not stored yet."""
         self.ensure_db()
         with db_session.SessionLocal() as db:
             q = db.query(AlertRule)
@@ -205,24 +206,43 @@ class AlertService:
             else:
                 q = q.filter(AlertRule.user_id.is_(None))
             rows = q.order_by(AlertRule.id.asc()).all()
-            if rows:
-                return [self._rule_to_dict(r) for r in rows]
-        return [r.to_dict() for r in default_rules()]
+            if not rows:
+                return [r.to_dict() for r in default_rules()]
+            out = [self._rule_to_dict(r) for r in rows]
+            out.extend(d.to_dict() for d in self._missing_defaults(rows))
+            return out
+
+    def _stored_rules(self, db: Session, user_id: Optional[int]) -> list[AlertRule]:
+        q = db.query(AlertRule)
+        if user_id is not None:
+            from sqlalchemy import or_
+
+            q = q.filter(or_(AlertRule.user_id == user_id, AlertRule.user_id.is_(None)))
+        else:
+            q = q.filter(AlertRule.user_id.is_(None))
+        return q.order_by(AlertRule.id.asc()).all()
+
+    @staticmethod
+    def _missing_defaults(stored: list[AlertRule]) -> list[RuleSpec]:
+        """Defaults for rule types the caller has no stored row for.
+
+        A release that ships a new alert type must reach installs seeded before
+        it existed, or the feature is silently dead for every existing user.
+        Types the user already has an opinion about — including ones they
+        deliberately disabled — are left alone.
+        """
+        known = {r.alert_type for r in stored}
+        return [d for d in default_rules() if d.alert_type not in known]
 
     def get_rule_specs(self, user_id: Optional[int] = None) -> list[RuleSpec]:
         self.ensure_db()
         with db_session.SessionLocal() as db:
-            q = db.query(AlertRule).filter(AlertRule.enabled.is_(True))
-            if user_id is not None:
-                from sqlalchemy import or_
-
-                q = q.filter(or_(AlertRule.user_id == user_id, AlertRule.user_id.is_(None)))
-            else:
-                q = q.filter(AlertRule.user_id.is_(None))
-            rows = q.all()
-            if rows:
-                return [self._row_to_spec(r) for r in rows]
-        return default_rules()
+            stored = self._stored_rules(db, user_id)
+            if not stored:
+                return default_rules()
+            specs = [self._row_to_spec(r) for r in stored if r.enabled]
+            specs.extend(self._missing_defaults(stored))
+            return specs
 
     def seed_default_rules(self, user_id: Optional[int] = None) -> int:
         """Persist default rules for a user (or system if user_id is None)."""
@@ -333,6 +353,10 @@ class AlertService:
         persist: bool = True,
     ) -> dict[str, Any]:
         specs = rules if rules is not None else self.get_rule_specs(user_id)
+        # Change rules need snapshot history, not NAV maths — they are handled
+        # by detect_fund_changes and would otherwise inflate checked_rules
+        # while silently matching nothing here.
+        specs = [s for s in specs if not is_change_type(s.alert_type)]
         engine = _engine_cls()()
         result = engine.evaluate(
             holdings,
@@ -361,6 +385,173 @@ class AlertService:
             "alerts": created,
             "orm_version": ALERT_ORM_VERSION,
         }
+
+    # ------------------------------------------------------- change detection
+    def latest_snapshot(self, amfi_code: str, db: Optional[Session] = None) -> Optional[Snapshot]:
+        """Most recent stored snapshot for a fund, or None if never captured."""
+        self.ensure_db()
+        own = db is None
+        db = db or db_session.SessionLocal()
+        try:
+            row = (
+                db.query(FundSnapshot)
+                .filter(FundSnapshot.amfi_code == str(amfi_code))
+                .order_by(FundSnapshot.captured_at.desc(), FundSnapshot.id.desc())
+                .first()
+            )
+            return Snapshot.from_row(row) if row else None
+        finally:
+            if own:
+                db.close()
+
+    def capture_snapshot(
+        self,
+        amfi_code: str,
+        scheme_name: Optional[str] = None,
+        *,
+        persist: bool = True,
+        db: Optional[Session] = None,
+    ) -> Snapshot:
+        """Capture and store the fund's current attributes."""
+        self.ensure_db()
+        snap = build_snapshot(self._fund_service(), amfi_code, scheme_name)
+        if not persist:
+            return snap
+        own = db is None
+        db = db or db_session.SessionLocal()
+        try:
+            db.add(FundSnapshot(**snap.to_row()))
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Snapshot persist failed for {}: {}", amfi_code, exc)
+        finally:
+            if own:
+                db.close()
+        return snap
+
+    def detect_fund_changes(
+        self,
+        holdings: list[dict[str, Any]],
+        *,
+        user_id: Optional[int] = None,
+        portfolio_id: Optional[int] = None,
+        max_funds: int = 25,
+        persist: bool = True,
+    ) -> dict[str, Any]:
+        """Capture fresh snapshots and raise alerts for what changed.
+
+        The first run for a fund only stores a baseline — there is nothing to
+        compare against yet, so it reports `baselines` rather than firing.
+        """
+        self.ensure_db()
+        specs = self.get_rule_specs(user_id)
+        change_specs = [s for s in specs if is_change_type(s.alert_type) and s.enabled]
+        if not change_specs:
+            return {
+                "status": "ok",
+                "message": "No change-detection rules enabled.",
+                "alerts_created": 0,
+                "baselines": 0,
+                "checked_funds": 0,
+                "alerts": [],
+            }
+
+        coded: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for h in holdings:
+            code = str(h.get("amfi_code") or "").strip()
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            coded.append((code, str(h.get("scheme_name") or code)))
+        coded = coded[:max_funds]
+
+        created: list[dict[str, Any]] = []
+        errors: list[str] = []
+        baselines = 0
+        detected = 0
+
+        for code, name in coded:
+            try:
+                previous = self.latest_snapshot(code)
+                current = self.capture_snapshot(code, name, persist=persist)
+                if previous is None:
+                    baselines += 1
+                    continue
+                changes = detect_changes(previous, current, rules=change_specs)
+                detected += len(changes)
+                for ch in changes:
+                    row = self._persist_change(
+                        ch,
+                        user_id=user_id,
+                        portfolio_id=portfolio_id,
+                        persist=persist,
+                    )
+                    if row:
+                        created.append(row)
+            except Exception as exc:
+                errors.append(f"{code}: {type(exc).__name__}: {exc}")
+                logger.warning("Change detection failed for {}: {}", code, exc)
+
+        return {
+            "status": "ok",
+            "alerts_created": len(created),
+            "candidates": detected,
+            "baselines": baselines,
+            "checked_funds": len(coded),
+            "errors": errors[:20],
+            "alerts": created,
+            "orm_version": ALERT_ORM_VERSION,
+        }
+
+    def _persist_change(
+        self,
+        ch: Change,
+        *,
+        user_id: Optional[int],
+        portfolio_id: Optional[int],
+        persist: bool = True,
+    ) -> Optional[dict[str, Any]]:
+        # Fingerprint on the change itself, not the date: a manager change
+        # should alert once, not again every time the scan runs.
+        detail = json.dumps(ch.payload, sort_keys=True, default=str)[:180]
+        fingerprint = f"{ch.alert_type}:{ch.amfi_code}:{detail}"
+        if not persist:
+            return {
+                "alert_type": ch.alert_type,
+                "severity": ch.severity,
+                "title": ch.title,
+                "message": ch.message,
+                "amfi_code": ch.amfi_code,
+                "scheme_name": ch.scheme_name,
+                "metric_value": ch.metric_value,
+                "threshold": ch.threshold,
+                "fingerprint": fingerprint,
+                "payload": ch.payload,
+            }
+        return self.create_alert(
+            alert_type=ch.alert_type,
+            title=ch.title,
+            message=ch.message,
+            severity=ch.severity,
+            amfi_code=ch.amfi_code,
+            scheme_name=ch.scheme_name,
+            user_id=user_id,
+            portfolio_id=portfolio_id,
+            metric_value=ch.metric_value,
+            threshold=ch.threshold,
+            fingerprint=fingerprint,
+            payload=ch.payload,
+        )
+
+    def _fund_service(self):
+        """Shared FundService, created lazily (it loads the AMFI cache)."""
+        if getattr(self, "_funds", None) is None:
+            from services.data.fund_service import FundService
+
+            self._funds = FundService()
+        return self._funds
 
     def evaluate_amfi_codes(
         self,

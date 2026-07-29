@@ -6,12 +6,35 @@ from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 AlertType = Literal[
+    # NAV / portfolio maths — evaluated from a time series that already exists.
     "nav_drop",
     "period_return",
     "drawdown",
     "pnl",
     "concentration",
     "overlap",
+    # Change detection — needs two FundSnapshot rows to compare.
+    # See services.alerts.change_detector.
+    "manager_change",
+    "expense_ratio_change",
+    "category_change",
+    "benchmark_change",
+    "holdings_change",
+    "large_holding_change",
+    "sector_shift",
+    "risk_increase",
+]
+
+# Types that require snapshot history rather than NAV maths.
+CHANGE_ALERT_TYPES: list[str] = [
+    "manager_change",
+    "expense_ratio_change",
+    "category_change",
+    "benchmark_change",
+    "holdings_change",
+    "large_holding_change",
+    "sector_shift",
+    "risk_increase",
 ]
 
 RULE_HELP: dict[str, str] = {
@@ -21,7 +44,20 @@ RULE_HELP: dict[str, str] = {
     "pnl": "Fires when unrealized P&L on a holding is at or below threshold (e.g. -10%).",
     "concentration": "Fires when a single fund weight is at or above threshold (e.g. 40%).",
     "overlap": "Fires when pairwise stock-level fund overlap is at or above threshold.",
+    "manager_change": "Fires when the fund manager on record changes. Threshold not used.",
+    "expense_ratio_change": "Fires when TER moves by at least threshold percentage points (e.g. 0.10 = 0.10pp).",
+    "category_change": "Fires when the fund's category or sub-category is reclassified. Threshold not used.",
+    "benchmark_change": "Fires when the stated benchmark index changes. Threshold not used.",
+    "holdings_change": "Fires when at least threshold of the portfolio turns over by weight (e.g. 0.20 = 20%).",
+    "large_holding_change": "Fires when any single security's weight moves by threshold percentage points (e.g. 2.0 = 2pp).",
+    "sector_shift": "Fires when any sector's weight moves by threshold percentage points (e.g. 5.0 = 5pp).",
+    "risk_increase": "Fires when annualised volatility rises by at least threshold, or the riskometer steps up (e.g. 0.25 = +25%).",
 }
+
+
+def is_change_type(alert_type: str) -> bool:
+    """True when the type needs snapshot history rather than NAV maths."""
+    return alert_type in CHANGE_ALERT_TYPES
 
 
 @dataclass
@@ -103,6 +139,71 @@ DEFAULT_RULE_SPECS: list[RuleSpec] = [
         lookback_days=0,
         severity="info",
         scope="portfolio",
+    ),
+    # --- change detection (needs snapshot history) ---
+    RuleSpec(
+        name="Fund manager changed",
+        alert_type="manager_change",
+        threshold=0.0,
+        lookback_days=0,
+        severity="critical",
+        scope="fund",
+    ),
+    RuleSpec(
+        name="Expense ratio moved ≥ 0.10pp",
+        alert_type="expense_ratio_change",
+        threshold=0.10,
+        lookback_days=0,
+        severity="warning",
+        scope="fund",
+    ),
+    RuleSpec(
+        name="Category reclassified",
+        alert_type="category_change",
+        threshold=0.0,
+        lookback_days=0,
+        severity="warning",
+        scope="fund",
+    ),
+    RuleSpec(
+        name="Benchmark changed",
+        alert_type="benchmark_change",
+        threshold=0.0,
+        lookback_days=0,
+        severity="warning",
+        scope="fund",
+    ),
+    RuleSpec(
+        name="Portfolio turnover ≥ 20%",
+        alert_type="holdings_change",
+        threshold=0.20,
+        lookback_days=0,
+        severity="warning",
+        scope="fund",
+    ),
+    RuleSpec(
+        name="Single holding moved ≥ 2pp",
+        alert_type="large_holding_change",
+        threshold=2.0,
+        lookback_days=0,
+        severity="info",
+        scope="fund",
+    ),
+    RuleSpec(
+        name="Sector allocation moved ≥ 5pp",
+        alert_type="sector_shift",
+        threshold=5.0,
+        lookback_days=0,
+        severity="info",
+        scope="fund",
+    ),
+    RuleSpec(
+        name="Volatility up ≥ 25%",
+        alert_type="risk_increase",
+        threshold=0.25,
+        lookback_days=0,
+        severity="warning",
+        scope="fund",
     ),
 ]
 

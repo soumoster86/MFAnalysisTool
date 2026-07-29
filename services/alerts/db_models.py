@@ -13,7 +13,7 @@ from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
 from database.session import Base
 
 # Bump when changing schema so Cloud deploys are easy to verify in logs
-ALERT_ORM_VERSION = "2026-07-29-b6"
+ALERT_ORM_VERSION = "2026-07-29-c1"
 
 
 class Alert(Base):
@@ -36,6 +36,48 @@ class Alert(Base):
     payload = Column(Text, nullable=True)
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class FundSnapshot(Base):
+    """Point-in-time copy of a fund's mutable attributes.
+
+    Change alerts (manager, TER, category, benchmark, holdings, sector mix,
+    risk) can only fire by comparing two points in time. Nothing else in the
+    schema keeps history for these fields — `funds` is overwritten in place —
+    so the change detector records its own.
+    """
+
+    __tablename__ = "fund_snapshots"
+    __table_args__ = {"extend_existing": True}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    amfi_code = Column(String(20), index=True, nullable=False)
+    scheme_name = Column(String(512), nullable=True)
+    captured_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    fund_manager = Column(String(256), nullable=True)
+    expense_ratio = Column(Float, nullable=True)
+    category = Column(String(128), nullable=True)
+    subcategory = Column(String(128), nullable=True)
+    benchmark = Column(String(256), nullable=True)
+    riskometer = Column(String(64), nullable=True)
+    aum_cr = Column(Float, nullable=True)
+
+    # Annualised volatility, for risk_increase.
+    volatility = Column(Float, nullable=True)
+
+    holdings_count = Column(Integer, nullable=True)
+    # Hash of (security, rounded weight) pairs — cheap "did anything move?" test.
+    holdings_hash = Column(String(64), nullable=True)
+    # JSON: {security_name: weight_pct}
+    holdings_json = Column(Text, nullable=True)
+    # JSON: {sector: weight_pct}
+    sector_json = Column(Text, nullable=True)
+
+    # Where the snapshot's inputs came from — a snapshot built on sample
+    # holdings must never fire a "holdings changed" alert.
+    holdings_source = Column(String(32), nullable=True)
+    nav_source = Column(String(32), nullable=True)
 
 
 class AlertRule(Base):

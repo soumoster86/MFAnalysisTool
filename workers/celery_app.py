@@ -38,6 +38,13 @@ try:
                 "schedule": 86400.0,
                 "kwargs": {"force": True},
             },
+            # Fund attributes move on the order of weeks, and each run costs a
+            # meta + holdings fetch per fund — daily is plenty.
+            "detect-fund-changes-daily": {
+                "task": "workers.tasks.detect_all_vault_changes",
+                "schedule": 86400.0,
+                "kwargs": {"max_users": 50, "max_funds": 15},
+            },
         },
     )
 except Exception as exc:  # pragma: no cover

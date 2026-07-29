@@ -99,7 +99,7 @@ with ecol2:
 with ecol3:
     dry_run = st.checkbox("Dry run (don't save)", value=False)
 
-b1, b2, b3, b4 = st.columns(4)
+b1, b2, b3, b4, b5 = st.columns(5)
 with b1:
     run_session = st.button("Evaluate session portfolio", type="primary", use_container_width=True)
 with b2:
@@ -110,9 +110,60 @@ with b2:
         help="Requires sign-in",
     )
 with b3:
-    mark_all = st.button("Mark all read", use_container_width=True)
+    run_changes = st.button(
+        "Detect fund changes",
+        use_container_width=True,
+        help=(
+            "Snapshots manager, TER, category, benchmark, holdings, sectors and risk, "
+            "then alerts on what moved since the last snapshot. The first run only "
+            "records a baseline."
+        ),
+    )
 with b4:
+    mark_all = st.button("Mark all read", use_container_width=True)
+with b5:
     refresh = st.button("AMFI refresh task", use_container_width=True)
+
+if run_changes:
+    if not holdings:
+        st.warning("No holdings in session.")
+    else:
+        try:
+            with st.spinner(f"Snapshotting {min(n_hold, max_funds)} funds…"):
+                out = svc.detect_fund_changes(
+                    holdings,
+                    user_id=uid,
+                    portfolio_id=active_pid,
+                    max_funds=max_funds,
+                    persist=not dry_run,
+                )
+            created = out.get("alerts_created", 0)
+            baselines = out.get("baselines", 0)
+            if out.get("message"):
+                st.info(out["message"])
+            elif baselines and not created:
+                st.info(
+                    f"Recorded a first baseline for {baselines} fund(s). "
+                    "Change alerts start from the next run — there is nothing to "
+                    "compare against yet."
+                )
+            else:
+                st.success(
+                    f"Checked {out.get('checked_funds', 0)} funds · {created} change alert(s)"
+                    + (f" · {baselines} new baseline(s)" if baselines else "")
+                    + (" (dry run)" if dry_run else "")
+                )
+            if out.get("errors"):
+                with st.expander("Change detection notes"):
+                    for e in out["errors"]:
+                        st.caption(e)
+            if dry_run and out.get("alerts"):
+                st.dataframe(out["alerts"], use_container_width=True)
+            elif not dry_run and created:
+                st.rerun()
+        except Exception as exc:
+            st.error("Change detection failed")
+            st.code(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
 
 if run_session:
     if not holdings:
