@@ -36,9 +36,26 @@ class AlertService:
             logger.warning("init_db during alerts ensure: {}", exc)
         self._ensure_schema()
 
+    # Slice B columns that older deploys are missing. `alerts` predates Slice B
+    # (it was created from the 9-column models.alert schema), and create_all /
+    # Table.create(checkfirst=True) never add columns to an existing table — so
+    # these must be ALTERed in on BOTH SQLite and Postgres, or every query that
+    # touches Alert.user_id fails with UndefinedColumn on Streamlit Cloud.
+    _SCHEMA_ADDITIONS: dict[str, list[tuple[str, str]]] = {
+        "alerts": [
+            ("user_id", "INTEGER"),
+            ("portfolio_id", "INTEGER"),
+            ("rule_id", "INTEGER"),
+            ("metric_value", "FLOAT"),
+            ("threshold", "FLOAT"),
+            ("fingerprint", "VARCHAR(256)"),
+            ("payload", "TEXT"),
+        ],
+    }
+
     def _ensure_schema(self) -> None:
         """Best-effort table/column ensure for SQLite and Postgres."""
-        from sqlalchemy import text
+        from sqlalchemy import inspect, text
 
         try:
             Alert.__table__.create(bind=db_session.engine, checkfirst=True)
@@ -46,27 +63,32 @@ class AlertService:
         except Exception as exc:
             logger.debug("alert create tables: {}", exc)
 
-        url = str(db_session.engine.url)
-        if not url.startswith("sqlite"):
+        if db_session.engine.dialect.name not in ("sqlite", "postgresql"):
             return
-        alters = [
-            ("alerts", "user_id", "INTEGER"),
-            ("alerts", "portfolio_id", "INTEGER"),
-            ("alerts", "rule_id", "INTEGER"),
-            ("alerts", "metric_value", "FLOAT"),
-            ("alerts", "threshold", "FLOAT"),
-            ("alerts", "fingerprint", "VARCHAR(256)"),
-            ("alerts", "payload", "TEXT"),
-        ]
+
         try:
-            with db_session.engine.begin() as conn:
-                for table, col, typedef in alters:
-                    try:
-                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}"))
-                    except Exception:
-                        pass
+            inspector = inspect(db_session.engine)
         except Exception as exc:
-            logger.debug("Alert schema ensure skipped: {}", exc)
+            logger.debug("Alert schema inspect skipped: {}", exc)
+            return
+
+        for table, columns in self._SCHEMA_ADDITIONS.items():
+            try:
+                existing = {c["name"] for c in inspector.get_columns(table)}
+            except Exception as exc:
+                logger.debug("Alert schema inspect {}: {}", table, exc)
+                continue
+            for col, typedef in columns:
+                if col in existing:
+                    continue
+                # One transaction per ALTER: on Postgres a failed statement
+                # aborts the whole transaction, poisoning later ALTERs.
+                try:
+                    with db_session.engine.begin() as conn:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}"))
+                    logger.info("Added missing column {}.{}", table, col)
+                except Exception as exc:
+                    logger.debug("Alert schema add {}.{}: {}", table, col, exc)
 
     # ------------------------------------------------------------------ create / list
     def create_alert(
