@@ -31,15 +31,16 @@ def nav_history_chart(
 
     - Area fill under the line
     - Optional moving average
-    - High / low / latest markers
-    - Clear axis labels and hover
-    - Optional normalize to base 100
+    - High / low / latest markers (hover only — no on-chart text)
+    - Title + source meta kept outside Plotly (callers use st.caption)
+    - Legend fixed below the plot so it never collides with the title
     """
     empty = go.Figure()
     empty.update_layout(
-        title=title,
+        title=None,
         annotations=[dict(text="No NAV history", showarrow=False, font=dict(color="#8b9bb4"))],
         height=height,
+        margin=dict(l=48, r=56, t=24, b=48),
     )
     if nav is None or (hasattr(nav, "empty") and nav.empty) or len(nav.dropna()) < 2:
         return style_fig(empty)
@@ -71,18 +72,7 @@ def nav_history_chart(
 
     # Room above/below so peak/trough markers are not clipped
     y_min, y_max = float(y.min()), float(y.max())
-    y_pad = max((y_max - y_min) * 0.12, abs(y_max) * 0.02, 0.05)
-
-    # Short title only — meta goes in a separate annotation (avoids title/legend clash)
-    short_title = title if len(title) <= 64 else title[:61] + "…"
-    meta_bits = [
-        f"{len(s)} pts",
-        f"{s.index.min():%Y-%m-%d} → {s.index.max():%Y-%m-%d}",
-        f"{period_ret*100:+.1f}%",
-    ]
-    if source:
-        meta_bits.insert(0, f"Source: {source}")
-    meta_line = " · ".join(meta_bits)
+    y_pad = max((y_max - y_min) * 0.14, abs(y_max) * 0.03, 0.08)
 
     fig = go.Figure()
 
@@ -114,7 +104,7 @@ def nav_history_chart(
             )
         )
 
-    # Peak / trough / latest — markers only (labels live in legend → no on-chart text clash)
+    # Peak / trough / latest — markers only; labels via legend + hover (no text on plot)
     fig.add_trace(
         go.Scatter(
             x=[hi_idx],
@@ -123,7 +113,7 @@ def nav_history_chart(
             name="Peak",
             marker=dict(
                 color="#3fb950",
-                size=12,
+                size=13,
                 symbol="triangle-up",
                 line=dict(width=1.5, color="#e6edf3"),
             ),
@@ -138,7 +128,7 @@ def nav_history_chart(
             name="Trough",
             marker=dict(
                 color="#f85149",
-                size=12,
+                size=13,
                 symbol="triangle-down",
                 line=dict(width=1.5, color="#e6edf3"),
             ),
@@ -151,25 +141,24 @@ def nav_history_chart(
             y=[latest],
             mode="markers",
             name="Latest",
-            marker=dict(color="#e6edf3", size=10, line=dict(width=2, color=line_color)),
+            marker=dict(color="#e6edf3", size=11, line=dict(width=2, color=line_color)),
             hovertemplate=f"<b>Latest</b><br>%{{x|%d %b %Y}}<br>{latest:.4f}<extra></extra>",
         )
     )
 
+    # Theme first, then chart-specific layout last so margins/legend/title are not overwritten
+    style_fig(fig)
     fig.update_layout(
-        title=dict(
-            text=short_title,
-            x=0,
-            xanchor="left",
-            y=0.98,
-            yanchor="top",
-            font=dict(size=15, color="#e6edf3"),
-        ),
+        # No Plotly title — callers render scheme name + meta via Streamlit (avoids title/legend clash)
+        title=None,
+        annotations=[],
         xaxis=dict(
             title="Date",
             showgrid=True,
             rangeslider=dict(visible=False),
             automargin=True,
+            gridcolor="#243041",
+            zerolinecolor="#243041",
         ),
         yaxis=dict(
             title=y_title,
@@ -178,40 +167,64 @@ def nav_history_chart(
             side="right",
             range=[y_min - y_pad, y_max + y_pad],
             automargin=True,
+            gridcolor="#243041",
+            zerolinecolor="#243041",
         ),
-        height=max(height, 460),
-        # Room for title on top + legend below (prevents overlap)
-        margin=dict(l=48, r=56, t=48, b=88),
+        height=max(height, 480),
+        # Generous bottom margin so horizontal legend never collides with the plot
+        margin=dict(l=52, r=60, t=20, b=100),
         legend=dict(
             orientation="h",
             yanchor="top",
-            y=-0.18,
-            x=0,
+            y=-0.22,
+            x=0.0,
             xanchor="left",
-            bgcolor="rgba(11,14,17,0.85)",
+            bgcolor="rgba(11,14,17,0.92)",
             bordercolor="#243041",
             borderwidth=1,
             font=dict(size=12, color="#c9d1d9"),
             itemsizing="constant",
             traceorder="normal",
+            itemclick="toggle",
+            itemdoubleclick="toggleothers",
         ),
         hovermode="closest",
-        # Meta line under the title area inside the plot (does not fight legend)
-        annotations=[
-            dict(
-                text=meta_line,
-                xref="paper",
-                yref="paper",
-                x=0,
-                y=1.08,
-                xanchor="left",
-                yanchor="bottom",
-                showarrow=False,
-                font=dict(size=11, color="#8b9bb4"),
-            )
-        ],
+        showlegend=True,
     )
-    return style_fig(fig)
+    # Stash meta for callers that want a caption (source / points / return)
+    fig._nav_meta = {  # type: ignore[attr-defined]
+        "title": title,
+        "source": source,
+        "points": len(s),
+        "start": s.index.min(),
+        "end": s.index.max(),
+        "period_return": period_ret,
+        "peak": hi_val,
+        "trough": lo_val,
+        "latest": latest,
+    }
+    return fig
+
+
+def nav_history_caption(fig: go.Figure) -> str | None:
+    """Build a one-line Streamlit caption from nav_history_chart metadata."""
+    meta = getattr(fig, "_nav_meta", None)
+    if not meta:
+        return None
+    bits = []
+    if meta.get("source"):
+        bits.append(f"Source: {meta['source']}")
+    bits.append(f"{meta['points']} points")
+    start, end = meta.get("start"), meta.get("end")
+    if start is not None and end is not None:
+        try:
+            bits.append(f"{start:%Y-%m-%d} → {end:%Y-%m-%d}")
+        except Exception:
+            pass
+    pret = meta.get("period_return")
+    if pret is not None:
+        bits.append(f"{pret * 100:+.1f}%")
+    return " · ".join(bits)
 
 
 def nav_history_stats(nav: pd.Series) -> dict:
