@@ -69,6 +69,21 @@ def nav_history_chart(
     line_color = "#3fb950" if period_ret >= 0 else "#f85149"
     fill_color = "rgba(63, 185, 80, 0.18)" if period_ret >= 0 else "rgba(248, 81, 73, 0.15)"
 
+    # Room above/below so peak/trough markers are not clipped
+    y_min, y_max = float(y.min()), float(y.max())
+    y_pad = max((y_max - y_min) * 0.12, abs(y_max) * 0.02, 0.05)
+
+    # Short title only — meta goes in a separate annotation (avoids title/legend clash)
+    short_title = title if len(title) <= 64 else title[:61] + "…"
+    meta_bits = [
+        f"{len(s)} pts",
+        f"{s.index.min():%Y-%m-%d} → {s.index.max():%Y-%m-%d}",
+        f"{period_ret*100:+.1f}%",
+    ]
+    if source:
+        meta_bits.insert(0, f"Source: {source}")
+    meta_line = " · ".join(meta_bits)
+
     fig = go.Figure()
 
     # Main NAV area
@@ -95,63 +110,106 @@ def nav_history_chart(
                 mode="lines",
                 name=f"MA {ma_window}d",
                 line=dict(color="#58a6ff", width=1.6, dash="dot"),
-                hovertemplate="MA: %{y:.4f}<extra></extra>",
+                hovertemplate="<b>%{x|%d %b %Y}</b><br>MA: %{y:.4f}<extra></extra>",
             )
         )
 
-    # High / low markers
+    # Peak / trough / latest — markers only (labels live in legend → no on-chart text clash)
     fig.add_trace(
         go.Scatter(
             x=[hi_idx],
             y=[hi_val],
-            mode="markers+text",
+            mode="markers",
             name="Peak",
-            marker=dict(color="#3fb950", size=10, symbol="triangle-up", line=dict(width=1, color="#e6edf3")),
-            text=["Peak"],
-            textposition="top center",
-            textfont=dict(size=10, color="#3fb950"),
-            hovertemplate=f"Peak<br>%{{x|%d %b %Y}}<br>{hi_val:.4f}<extra></extra>",
+            marker=dict(
+                color="#3fb950",
+                size=12,
+                symbol="triangle-up",
+                line=dict(width=1.5, color="#e6edf3"),
+            ),
+            hovertemplate=f"<b>Peak</b><br>%{{x|%d %b %Y}}<br>{hi_val:.4f}<extra></extra>",
         )
     )
     fig.add_trace(
         go.Scatter(
             x=[lo_idx],
             y=[lo_val],
-            mode="markers+text",
+            mode="markers",
             name="Trough",
-            marker=dict(color="#f85149", size=10, symbol="triangle-down", line=dict(width=1, color="#e6edf3")),
-            text=["Trough"],
-            textposition="bottom center",
-            textfont=dict(size=10, color="#f85149"),
-            hovertemplate=f"Trough<br>%{{x|%d %b %Y}}<br>{lo_val:.4f}<extra></extra>",
+            marker=dict(
+                color="#f85149",
+                size=12,
+                symbol="triangle-down",
+                line=dict(width=1.5, color="#e6edf3"),
+            ),
+            hovertemplate=f"<b>Trough</b><br>%{{x|%d %b %Y}}<br>{lo_val:.4f}<extra></extra>",
         )
     )
-    # Latest marker
     fig.add_trace(
         go.Scatter(
             x=[y.index[-1]],
             y=[latest],
             mode="markers",
             name="Latest",
-            marker=dict(color="#e6edf3", size=9, line=dict(width=2, color=line_color)),
-            hovertemplate=f"Latest<br>%{{x|%d %b %Y}}<br>{latest:.4f}<extra></extra>",
+            marker=dict(color="#e6edf3", size=10, line=dict(width=2, color=line_color)),
+            hovertemplate=f"<b>Latest</b><br>%{{x|%d %b %Y}}<br>{latest:.4f}<extra></extra>",
         )
     )
 
-    subtitle = ""
-    if source:
-        subtitle = f"<br><sup>Source: {source} · {len(s)} points · {s.index.min():%Y-%m-%d} → {s.index.max():%Y-%m-%d}</sup>"
-    else:
-        subtitle = f"<br><sup>{len(s)} points · {s.index.min():%Y-%m-%d} → {s.index.max():%Y-%m-%d} · period {period_ret*100:+.1f}%</sup>"
-
     fig.update_layout(
-        title=dict(text=title + subtitle, x=0, xanchor="left"),
-        xaxis=dict(title="Date", showgrid=True, rangeslider=dict(visible=False)),
-        yaxis=dict(title=y_title, showgrid=True, zeroline=False, side="right"),
-        height=height,
-        margin=dict(l=40, r=50, t=70, b=40),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, bgcolor="rgba(0,0,0,0)"),
-        hovermode="x unified",
+        title=dict(
+            text=short_title,
+            x=0,
+            xanchor="left",
+            y=0.98,
+            yanchor="top",
+            font=dict(size=15, color="#e6edf3"),
+        ),
+        xaxis=dict(
+            title="Date",
+            showgrid=True,
+            rangeslider=dict(visible=False),
+            automargin=True,
+        ),
+        yaxis=dict(
+            title=y_title,
+            showgrid=True,
+            zeroline=False,
+            side="right",
+            range=[y_min - y_pad, y_max + y_pad],
+            automargin=True,
+        ),
+        height=max(height, 460),
+        # Room for title on top + legend below (prevents overlap)
+        margin=dict(l=48, r=56, t=48, b=88),
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.18,
+            x=0,
+            xanchor="left",
+            bgcolor="rgba(11,14,17,0.85)",
+            bordercolor="#243041",
+            borderwidth=1,
+            font=dict(size=12, color="#c9d1d9"),
+            itemsizing="constant",
+            traceorder="normal",
+        ),
+        hovermode="closest",
+        # Meta line under the title area inside the plot (does not fight legend)
+        annotations=[
+            dict(
+                text=meta_line,
+                xref="paper",
+                yref="paper",
+                x=0,
+                y=1.08,
+                xanchor="left",
+                yanchor="bottom",
+                showarrow=False,
+                font=dict(size=11, color="#8b9bb4"),
+            )
+        ],
     )
     return style_fig(fig)
 

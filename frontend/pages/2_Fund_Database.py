@@ -247,15 +247,18 @@ if nav_bundle and nav_bundle.get("nav") is not None and len(nav_bundle["nav"]) >
             cols=4,
         )
 
+    # Keep chart title short; full scheme name as caption (avoids title/legend overlap)
+    chart_title = f"NAV · {scheme_name}" if len(scheme_name) <= 48 else f"NAV · {scheme_name[:45]}…"
+    st.caption(scheme_name)
     st.plotly_chart(
         nav_history_chart(
             nav_view,
-            title=f"NAV · {scheme_name[:55]}",
+            title=chart_title,
             show_ma=show_ma,
             ma_window=50 if len(nav_view) > 120 else 20,
             normalize=normalize,
             source=source,
-            height=440,
+            height=460,
         ),
         use_container_width=True,
     )
