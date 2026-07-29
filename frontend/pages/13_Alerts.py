@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import traceback
 from pathlib import Path
 
 # Streamlit multipage pages may not inherit path setup — ensure project root
@@ -22,34 +23,55 @@ from frontend.theme import apply_theme
 
 apply_theme()
 
-try:
-    from services.alerts.alert_service import AlertService
-    from services.alerts.rules import RULE_HELP, known_alert_types
-except Exception as exc:
-    st.error("Failed to load Alerts module.")
-    st.code(f"{type(exc).__name__}: {exc}")
-    with st.expander("Full traceback"):
-        st.exception(exc)
-    st.stop()
-
 st.title("Alerts")
 st.caption(
     "Real NAV · drawdown · P&L · concentration · overlap rules — "
     "evaluate session portfolio or vault · Celery beat ready"
 )
 
-svc = AlertService()
+# ---------------------------------------------------------------------------
+# Load service (never crash the whole page)
+# ---------------------------------------------------------------------------
+try:
+    from services.alerts.alert_service import AlertService
+    from services.alerts.rules import RULE_HELP, known_alert_types
+except Exception as exc:
+    st.error("Failed to import Alerts backend.")
+    st.code(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
+    st.stop()
+
+try:
+    svc = AlertService()
+except Exception as exc:
+    st.error("Failed to create AlertService.")
+    st.code(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
+    st.stop()
+
 user = get_current_user() if is_logged_in() else None
 uid = user["id"] if user else None
 
-# Ensure user has persisted default rules once
+# Seed rules lazily / safely — never block page render
+seed_err = None
 if uid:
-    svc.seed_default_rules(uid)
+    try:
+        svc.seed_default_rules(uid)
+    except Exception as exc:
+        seed_err = f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
+
+if seed_err:
+    st.warning("Could not seed/load alert rules yet (page still works for evaluate).")
+    with st.expander("Seed error details"):
+        st.code(seed_err)
 
 # ---------------------------------------------------------------------------
 # Summary strip
 # ---------------------------------------------------------------------------
-counts = svc.count_unread(uid)
+try:
+    counts = svc.count_unread(uid)
+except Exception as exc:
+    counts = {"total": 0, "critical": 0, "warning": 0, "info": 0}
+    st.warning(f"Could not load unread counts: {type(exc).__name__}: {exc}")
+
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Unread", counts.get("total", 0))
 c2.metric("Critical", counts.get("critical", 0))
@@ -95,64 +117,78 @@ if run_session:
     if not holdings:
         st.warning("No holdings in session.")
     else:
-        with st.spinner(f"Evaluating {min(n_hold, max_funds)} funds…"):
-            if dry_run:
-                out = svc.evaluate_portfolio(
-                    holdings,
-                    user_id=uid,
-                    portfolio_id=active_pid,
-                    max_funds=max_funds,
-                    include_overlap=include_overlap,
-                    persist=False,
-                )
-            else:
-                from workers.tasks import evaluate_alerts
+        try:
+            with st.spinner(f"Evaluating {min(n_hold, max_funds)} funds…"):
+                if dry_run:
+                    out = svc.evaluate_portfolio(
+                        holdings,
+                        user_id=uid,
+                        portfolio_id=active_pid,
+                        max_funds=max_funds,
+                        include_overlap=include_overlap,
+                        persist=False,
+                    )
+                else:
+                    from workers.tasks import evaluate_alerts
 
-                out = evaluate_alerts(
-                    holdings=holdings,
-                    user_id=uid,
-                    portfolio_id=active_pid,
-                    include_overlap=include_overlap,
-                    max_funds=max_funds,
-                )
-        st.success(
-            f"Checked {out.get('checked_funds', 0)} funds · "
-            f"{out.get('alerts_created', out.get('candidates', 0))} alert(s)"
-            + (" (dry run)" if dry_run else "")
-        )
-        if out.get("errors"):
-            with st.expander("Evaluation notes"):
-                for e in out["errors"]:
-                    st.caption(e)
-        if dry_run and out.get("alerts"):
-            st.dataframe(out["alerts"], use_container_width=True)
-        else:
-            st.rerun()
+                    out = evaluate_alerts(
+                        holdings=holdings,
+                        user_id=uid,
+                        portfolio_id=active_pid,
+                        include_overlap=include_overlap,
+                        max_funds=max_funds,
+                    )
+            st.success(
+                f"Checked {out.get('checked_funds', 0)} funds · "
+                f"{out.get('alerts_created', out.get('candidates', 0))} alert(s)"
+                + (" (dry run)" if dry_run else "")
+            )
+            if out.get("errors"):
+                with st.expander("Evaluation notes"):
+                    for e in out["errors"]:
+                        st.caption(e)
+            if dry_run and out.get("alerts"):
+                st.dataframe(out["alerts"], use_container_width=True)
+            elif not dry_run:
+                st.rerun()
+        except Exception as exc:
+            st.error("Evaluation failed")
+            st.code(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
 
 if run_vault and uid:
-    with st.spinner("Evaluating vault portfolios…"):
-        from workers.tasks import evaluate_alerts
+    try:
+        with st.spinner("Evaluating vault portfolios…"):
+            from workers.tasks import evaluate_alerts
 
-        out = evaluate_alerts(
-            user_id=uid,
-            include_overlap=include_overlap,
-            max_funds=max_funds,
-        )
-    st.success(f"Vault scan created {out.get('alerts_created', 0)} alert(s)")
-    if out.get("portfolios"):
-        st.dataframe(out["portfolios"], use_container_width=True)
-    st.rerun()
+            out = evaluate_alerts(
+                user_id=uid,
+                include_overlap=include_overlap,
+                max_funds=max_funds,
+            )
+        st.success(f"Vault scan created {out.get('alerts_created', 0)} alert(s)")
+        if out.get("portfolios"):
+            st.dataframe(out["portfolios"], use_container_width=True)
+        st.rerun()
+    except Exception as exc:
+        st.error("Vault evaluation failed")
+        st.code(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
 
 if mark_all:
-    n = svc.mark_all_read(uid)
-    st.success(f"Marked {n} alert(s) read")
-    st.rerun()
+    try:
+        n = svc.mark_all_read(uid)
+        st.success(f"Marked {n} alert(s) read")
+        st.rerun()
+    except Exception as exc:
+        st.error(f"Mark read failed: {type(exc).__name__}: {exc}")
 
 if refresh:
-    from workers.tasks import refresh_amfi
+    try:
+        from workers.tasks import refresh_amfi
 
-    out = refresh_amfi.delay(True) if hasattr(refresh_amfi, "delay") else refresh_amfi(True)
-    st.write(out)
+        out = refresh_amfi.delay(True) if hasattr(refresh_amfi, "delay") else refresh_amfi(True)
+        st.write(out)
+    except Exception as exc:
+        st.error(f"AMFI refresh failed: {type(exc).__name__}: {exc}")
 
 st.caption(
     f"Session holdings: **{n_hold}**"
@@ -169,11 +205,20 @@ with st.expander("Alert rules", expanded=False):
         "drawdown, unrealized loss, concentration, and overlap."
     )
     if uid and st.button("Reset / seed default rules for my account"):
-        n = svc.seed_default_rules(uid)
-        st.success(f"Seeded {n} rules (0 if you already had some)")
-        st.rerun()
+        try:
+            n = svc.seed_default_rules(uid)
+            st.success(f"Seeded {n} rules (0 if you already had some)")
+            st.rerun()
+        except Exception as exc:
+            st.error("Seed failed")
+            st.code(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
 
-    rules = svc.list_rules(uid)
+    try:
+        rules = svc.list_rules(uid)
+    except Exception as exc:
+        rules = []
+        st.code(f"list_rules failed: {type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
+
     if rules:
         for r in rules:
             rid = r.get("id")
@@ -247,13 +292,18 @@ with f2:
 with f3:
     sev_filter = st.selectbox("Severity", ["All", "critical", "warning", "info"])
 
-alerts = svc.list_alerts(
-    unread_only=unread_only,
-    limit=100,
-    user_id=uid,
-    alert_type=None if type_filter == "All" else type_filter,
-    severity=None if sev_filter == "All" else sev_filter,
-)
+try:
+    alerts = svc.list_alerts(
+        unread_only=unread_only,
+        limit=100,
+        user_id=uid,
+        alert_type=None if type_filter == "All" else type_filter,
+        severity=None if sev_filter == "All" else sev_filter,
+    )
+except Exception as exc:
+    alerts = []
+    st.error("Could not load alerts")
+    st.code(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")
 
 if not alerts:
     st.info(
@@ -313,8 +363,11 @@ Beat schedule: hourly vault alert scan + daily AMFI refresh.
         """
     )
     if st.button("Run full vault scan now (all users)"):
-        with st.spinner("Scanning…"):
-            from workers.tasks import evaluate_all_vault_alerts
+        try:
+            with st.spinner("Scanning…"):
+                from workers.tasks import evaluate_all_vault_alerts
 
-            out = evaluate_all_vault_alerts(max_users=20, max_funds=10)
-        st.json(out)
+                out = evaluate_all_vault_alerts(max_users=20, max_funds=10)
+            st.json(out)
+        except Exception as exc:
+            st.code(f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}")

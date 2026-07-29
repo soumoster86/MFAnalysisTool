@@ -9,6 +9,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from database import session as db_session
+from services.alerts.db_models import Alert, AlertRule
 from services.alerts.rules import RuleSpec, default_rules, known_alert_types
 from utils.logging_config import get_logger
 
@@ -16,14 +17,7 @@ logger = get_logger(__name__)
 
 
 def _alert_models():
-    """
-    Load Alert / AlertRule ORM classes.
-
-    Uses services.alerts.db_models (not models.alert) so Streamlit Cloud multipage
-    never fails on a partially-initialized top-level `models` package.
-    """
-    from services.alerts.db_models import Alert, AlertRule
-
+    """Return ORM classes (imported once at module load — no nested import)."""
     return Alert, AlertRule
 
 
@@ -37,12 +31,28 @@ class AlertService:
     """Create, list, configure rules, and evaluate real portfolio alerts."""
 
     def ensure_db(self) -> None:
-        db_session.init_db()
+        try:
+            db_session.init_db()
+        except Exception as exc:
+            logger.warning("init_db during alerts ensure: {}", exc)
+            # Still try schema alters / table create for alert tables only
+            try:
+                Alert.__table__.create(bind=db_session.engine, checkfirst=True)
+                AlertRule.__table__.create(bind=db_session.engine, checkfirst=True)
+            except Exception as exc2:
+                logger.warning("alert table create: {}", exc2)
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
-        """Best-effort column adds for older SQLite DBs."""
+        """Best-effort table/column ensure for SQLite and Postgres."""
         from sqlalchemy import text
+
+        # Always ensure tables exist (works on Postgres + SQLite)
+        try:
+            Alert.__table__.create(bind=db_session.engine, checkfirst=True)
+            AlertRule.__table__.create(bind=db_session.engine, checkfirst=True)
+        except Exception as exc:
+            logger.debug("alert create tables: {}", exc)
 
         url = str(db_session.engine.url)
         if not url.startswith("sqlite"):
@@ -249,7 +259,7 @@ class AlertService:
     def seed_default_rules(self, user_id: Optional[int] = None) -> int:
         """Persist default rules for a user (or system if user_id is None)."""
         self.ensure_db()
-        _Alert, AlertRule = _alert_models()
+        # Use module-level AlertRule (no nested import)
         with db_session.SessionLocal() as db:
             q = db.query(AlertRule)
             if user_id is None:
