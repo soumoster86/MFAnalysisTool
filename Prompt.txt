@@ -1,0 +1,821 @@
+You are an expert Software Architect, Senior Machine Learning Engineer, Quantitative Analyst, Financial Analyst, UI/UX Designer and Python Full Stack Developer.
+
+Your task is to build a world-class AI & Machine Learning powered Mutual Fund Analysis Platform.
+
+The objective is NOT to build another mutual fund screener.
+
+The objective is to build an intelligent investment assistant that helps investors understand, compare, analyze and optimize their mutual fund portfolio using Artificial Intelligence, Machine Learning and Financial Analytics.
+
+The application must be modular, scalable and production-ready.
+
+#############################################################
+TECH STACK
+#############################################################
+
+Backend
+--------
+Python 3.12+
+
+FastAPI
+
+Pandas
+
+NumPy
+
+Scikit-Learn
+
+XGBoost
+
+LightGBM
+
+CatBoost
+
+TensorFlow (optional)
+
+PyTorch (optional)
+
+Statsmodels
+
+SciPy
+
+yfinance
+
+AMFI Data
+
+NSE Data
+
+BSE Data
+
+SQLite (Development)
+
+PostgreSQL (Production)
+
+Redis
+
+Celery
+
+Frontend
+---------
+
+Streamlit (Phase 1)
+
+React + NextJS (Phase 2)
+
+TailwindCSS
+
+Plotly
+
+Altair
+
+AgGrid
+
+Authentication
+
+JWT
+
+
+#############################################################
+PROJECT ARCHITECTURE
+#############################################################
+
+Design using clean architecture.
+
+Separate into
+
+backend/
+
+frontend/
+
+database/
+
+models/
+
+api/
+
+services/
+
+ml/
+
+analytics/
+
+config/
+
+utils/
+
+tests/
+
+docs/
+
+#############################################################
+APPLICATION MODULES
+#############################################################
+
+MODULE 1
+
+Dashboard
+
+Features
+
+Overall Portfolio Score
+
+Today's NAV
+
+Portfolio Value
+
+Daily Gain/Loss
+
+Asset Allocation
+
+Sector Allocation
+
+Market Cap Allocation
+
+Risk Meter
+
+Performance Summary
+
+Interactive Charts
+
+Dark Mode
+
+#############################################################
+
+MODULE 2
+
+Mutual Fund Database
+
+Store
+
+AMFI Code
+
+Scheme Name
+
+AMC
+
+Category
+
+Subcategory
+
+Benchmark
+
+Expense Ratio
+
+Exit Load
+
+Minimum SIP
+
+Minimum Lumpsum
+
+Fund Manager
+
+Fund Manager Tenure
+
+Launch Date
+
+AUM
+
+Riskometer
+
+Benchmark
+
+Historical NAV
+
+Dividend History
+
+Portfolio Holdings
+
+Cash Allocation
+
+Debt Allocation
+
+Equity Allocation
+
+International Exposure
+
+#############################################################
+
+MODULE 3
+
+Fund Health Score
+
+Generate a score from 0-100.
+
+Factors
+
+Rolling Returns
+
+Alpha
+
+Beta
+
+Sharpe Ratio
+
+Sortino Ratio
+
+Treynor Ratio
+
+Information Ratio
+
+Standard Deviation
+
+Maximum Drawdown
+
+Expense Ratio
+
+Portfolio Turnover
+
+Consistency
+
+Fund Manager Stability
+
+AUM Growth
+
+Portfolio Quality
+
+Benchmark Outperformance
+
+Generate
+
+Overall Score
+
+Growth Score
+
+Risk Score
+
+Quality Score
+
+Cost Efficiency
+
+Consistency Score
+
+Diversification Score
+
+#############################################################
+
+MODULE 4
+
+Portfolio Analyzer
+
+Input
+
+Multiple Mutual Funds
+
+Output
+
+Portfolio Health Score
+
+Portfolio CAGR
+
+Expected CAGR
+
+Volatility
+
+Risk
+
+Sector Allocation
+
+Market Cap Allocation
+
+Geographical Allocation
+
+Fund Overlap
+
+Portfolio Overlap %
+
+Portfolio Concentration
+
+Top Holdings
+
+Correlation Matrix
+
+Risk Heatmap
+
+Efficient Frontier
+
+#############################################################
+
+MODULE 5
+
+Portfolio Overlap Detector
+
+Calculate
+
+Holding Overlap
+
+Sector Overlap
+
+AMC Concentration
+
+Category Concentration
+
+Top Repeated Stocks
+
+Suggest
+
+Alternative Mutual Funds
+
+Diversification Improvement %
+
+#############################################################
+
+MODULE 6
+
+Mutual Fund Comparison
+
+Compare
+
+Up to 5 funds
+
+Compare
+
+Rolling Returns
+
+Expense Ratio
+
+Sharpe
+
+Sortino
+
+Alpha
+
+Beta
+
+Standard Deviation
+
+Drawdown
+
+Consistency
+
+Upside Capture
+
+Downside Capture
+
+Capture Ratio
+
+Benchmark Outperformance
+
+Portfolio Quality
+
+Manager Performance
+
+Generate AI Summary
+
+#############################################################
+
+MODULE 7
+
+Goal Planner
+
+Inputs
+
+Age
+
+Retirement Age
+
+Current Investment
+
+Monthly SIP
+
+Expected Inflation
+
+Expected Return
+
+Goal Amount
+
+Output
+
+Probability of Success
+
+Expected Corpus
+
+Monte Carlo Simulation
+
+Worst Case
+
+Average Case
+
+Best Case
+
+Required SIP
+
+Required Return
+
+#############################################################
+
+MODULE 8
+
+Machine Learning Engine
+
+Create ML models for
+
+Future Return Prediction
+
+Expected CAGR Prediction
+
+Risk Prediction
+
+Volatility Prediction
+
+Category Ranking
+
+Fund Ranking
+
+Recommendation Engine
+
+Use
+
+XGBoost
+
+LightGBM
+
+CatBoost
+
+Random Forest
+
+Gradient Boosting
+
+Stacking Ensemble
+
+Compare all models.
+
+Automatically select best performing model.
+
+#############################################################
+
+MODULE 9
+
+Recommendation Engine
+
+Input
+
+Risk Appetite
+
+Investment Horizon
+
+Monthly SIP
+
+Goals
+
+Age
+
+Existing Portfolio
+
+Output
+
+Recommended Funds
+
+Recommended Allocation
+
+Risk Analysis
+
+Expected Return
+
+Portfolio Optimization
+
+#############################################################
+
+MODULE 10
+
+Portfolio Optimizer
+
+Use
+
+Modern Portfolio Theory
+
+Mean Variance Optimization
+
+Black-Litterman
+
+Risk Parity
+
+Efficient Frontier
+
+Generate
+
+Suggested Allocation
+
+Expected Return
+
+Expected Risk
+
+Sharpe Ratio
+
+#############################################################
+
+MODULE 11
+
+Mutual Fund X-Ray
+
+Generate
+
+Overall Health
+
+Hidden Risks
+
+Style Drift
+
+Sector Bias
+
+Market Cap Bias
+
+Country Bias
+
+Hidden Concentration
+
+Manager Dependency
+
+Expense Analysis
+
+Historical Stability
+
+Benchmark Comparison
+
+Suggested Alternatives
+
+#############################################################
+
+MODULE 12
+
+AI Financial Assistant
+
+Implement an LLM powered chatbot.
+
+User should ask
+
+Should I invest?
+
+Should I stop SIP?
+
+Compare two funds
+
+Explain Alpha
+
+Explain Beta
+
+Explain Drawdown
+
+Explain Expense Ratio
+
+Explain like a beginner
+
+Explain like Warren Buffett
+
+Explain using examples
+
+Use RAG.
+
+#############################################################
+
+MODULE 13
+
+Alerts
+
+Notify when
+
+Fund Manager Changes
+
+Expense Ratio Changes
+
+Category Changes
+
+Benchmark Changes
+
+Portfolio Changes
+
+Large Holding Changes
+
+Sector Allocation Changes
+
+NAV Drop
+
+Drawdown
+
+Risk Increase
+
+#############################################################
+
+MODULE 14
+
+Visualization
+
+Create beautiful dashboards using Plotly.
+
+Include
+
+Treemap
+
+Heatmaps
+
+Sunburst
+
+Correlation Matrix
+
+Risk vs Return Scatter
+
+Bubble Charts
+
+Sector Charts
+
+Holdings Pie Chart
+
+Efficient Frontier
+
+Monte Carlo Distribution
+
+Drawdown Curve
+
+Rolling Return Graphs
+
+#############################################################
+
+MODULE 15
+
+Reports
+
+Generate PDF
+
+Generate Excel
+
+Generate PowerPoint
+
+Generate AI Summary
+
+Include
+
+Charts
+
+Recommendations
+
+Risk Analysis
+
+Portfolio Health
+
+Future Outlook
+
+#############################################################
+
+MACHINE LEARNING FEATURES
+
+Use historical NAV data.
+
+Engineer features
+
+Rolling Returns
+
+Momentum
+
+Volatility
+
+Moving Average
+
+Rolling Sharpe
+
+Rolling Sortino
+
+Rolling Alpha
+
+Rolling Beta
+
+RSI
+
+MACD
+
+Drawdown
+
+Expense Ratio Trend
+
+AUM Trend
+
+Category Trend
+
+Manager Tenure
+
+Holdings Turnover
+
+Benchmark Return
+
+Use Time Series Cross Validation.
+
+Avoid Data Leakage.
+
+Compare
+
+Random Forest
+
+Gradient Boosting
+
+XGBoost
+
+LightGBM
+
+CatBoost
+
+LSTM
+
+Transformer (optional)
+
+#############################################################
+
+AI FEATURES
+
+Use LLM for
+
+Explainability
+
+Recommendations
+
+Natural Language Queries
+
+Financial Education
+
+Portfolio Review
+
+Generate easy-to-understand investment advice.
+
+Never hallucinate.
+
+Always cite calculations.
+
+#############################################################
+
+DESIGN
+
+Professional
+
+Bloomberg inspired
+
+TradingView inspired
+
+Morningstar inspired
+
+Responsive
+
+Dark Mode
+
+Modern
+
+Fast
+
+Minimal
+
+#############################################################
+
+QUALITY
+
+Write clean code.
+
+Use SOLID principles.
+
+Use Design Patterns.
+
+Use Type Hints.
+
+Write Docstrings.
+
+Write Unit Tests.
+
+Use Logging.
+
+Handle Errors.
+
+Create Config Files.
+
+Create README.
+
+Create Dockerfile.
+
+Create requirements.txt.
+
+Generate API documentation.
+
+#############################################################
+
+OUTPUT FORMAT
+
+Build the application incrementally.
+
+For every module provide
+
+1. Folder Structure
+
+2. Database Design
+
+3. API Design
+
+4. Backend Code
+
+5. ML Code
+
+6. Frontend Code
+
+7. Tests
+
+8. Documentation
+
+9. Sample Data
+
+10. Example Screenshots (ASCII Mockups)
+
+Do NOT skip steps.
+
+Think like a Principal Engineer building a commercial SaaS product.

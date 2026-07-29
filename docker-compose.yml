@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - redis
+    command: streamlit run frontend/app.py --server.port=8501 --server.address=0.0.0.0
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  worker:
+    build: .
+    env_file:
+      - .env
+    environment:
+      - CELERY_ENABLED=true
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - redis
+    command: celery -A workers.celery_app.celery_app worker --loglevel=info
+    profiles:
+      - workers
