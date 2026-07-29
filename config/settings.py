@@ -53,8 +53,17 @@ class Settings(BaseSettings):
     secret_key: str = "dev-secret-change-in-production"
     log_level: str = "INFO"
 
-    # Database
+    # Database (Supabase: use Connection string URI from Project Settings → Database)
     database_url: str = Field(default_factory=_default_database_url)
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _normalize_db_url(cls, v):  # type: ignore[no-untyped-def]
+        if v is None or v == "":
+            return _default_database_url()
+        from config.db_url import normalize_database_url
+
+        return normalize_database_url(str(v))
 
     # Redis / Celery
     redis_url: str = "redis://localhost:6379/0"

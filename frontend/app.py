@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 
 import streamlit as st
 
-# Streamlit Cloud: map secrets → env before Settings() is constructed
+# Streamlit Cloud: map secrets → env, rebuild settings + DB engine
 try:
     from config.cloud_bootstrap import inject_streamlit_secrets
     import config.settings as settings_mod
@@ -23,6 +23,13 @@ try:
     inject_streamlit_secrets()
     settings_mod.get_settings.cache_clear()
     settings_mod.settings = settings_mod.get_settings()
+    # Rebuild SQLAlchemy engine if DATABASE_URL came from st.secrets
+    try:
+        from database import session as db_session
+
+        db_session.rebind_engine_from_settings()
+    except Exception:
+        pass
 except Exception:
     pass
 
@@ -31,6 +38,21 @@ from frontend.theme import apply_theme
 from utils.logging_config import setup_logging
 
 setup_logging(settings.log_level)
+
+# Ensure vault/auth tables exist (Supabase Postgres or SQLite)
+try:
+    from database.session import init_db
+
+    init_db()
+except Exception as _db_exc:
+    # Surface clearly on landing if DB is misconfigured
+    import streamlit as _st
+
+    _st.error(
+        f"Database connection failed. Check DATABASE_URL in Streamlit Secrets "
+        f"(Supabase Postgres URI). Details: {_db_exc}"
+    )
+
 
 st.set_page_config(
     page_title="MF Analysis Tool",

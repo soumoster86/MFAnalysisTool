@@ -110,7 +110,7 @@ Wait for the first build (can take 10–20+ minutes). If it fails, check the Str
 Main file must be `frontend/app.py` (it adds the repo root to `sys.path`).
 
 ### App reboots wipe users/portfolios
-Expected with SQLite on `/tmp`. Switch `DATABASE_URL` to Postgres.
+Expected with SQLite on `/tmp`. Use Supabase: set `DATABASE_URL` to your Postgres URI (see `docs/SUPABASE.md`).
 
 ### Groww / AMFI blocked
 Some hosts block scrapers; the app falls back to sample holdings / synthetic NAV when configured.

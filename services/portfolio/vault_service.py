@@ -26,8 +26,15 @@ class PortfolioVaultService:
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
-        """Add new columns on existing SQLite DBs (best-effort)."""
+        """
+        Best-effort column adds for older SQLite DBs.
+        On Postgres/Supabase, create_all() in init_db is sufficient for new deploys.
+        """
         from sqlalchemy import text
+
+        url = str(db_session.engine.url)
+        if not url.startswith("sqlite"):
+            return  # Postgres: no SQLite-style ALTER loop needed
 
         alters = [
             ("portfolios", "source", "VARCHAR(64) DEFAULT 'manual'"),
