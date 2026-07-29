@@ -52,6 +52,8 @@ git push -u origin main
 
 ### Secrets (paste into Streamlit Cloud)
 
+Use **Supabase** for persistent users + portfolios (see [docs/SUPABASE.md](docs/SUPABASE.md)):
+
 ```toml
 SECRET_KEY = "use-a-long-random-string-here"
 APP_ENV = "production"
@@ -61,18 +63,10 @@ OPENAI_API_KEY = "your-key"
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 OPENAI_MODEL = "gpt-5.6-sol"
 
-# Demo / free tier (data resets when the app sleeps/reboots):
-DATABASE_URL = "sqlite:////tmp/mf_analysis.db"
+# Supabase → Project Settings → Database → Connection string → URI
+DATABASE_URL = "postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT_REF.supabase.co:5432/postgres"
 DATA_CACHE_DIR = "/tmp/mf_cache"
 ```
-
-For **persistent** user portfolios (recommended):
-
-```toml
-DATABASE_URL = "postgresql+psycopg://USER:PASSWORD@HOST:5432/DBNAME?sslmode=require"
-```
-
-Free Postgres: [Neon](https://neon.tech), [Supabase](https://supabase.com), [Railway](https://railway.app).
 
 Generate a secret key:
 
