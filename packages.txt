@@ -1,3 +1,1 @@
-# System packages for Streamlit Cloud (apt)
-# Helps LightGBM / scientific wheels on Linux builders
 libgomp1
