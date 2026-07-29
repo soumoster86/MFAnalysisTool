@@ -99,8 +99,7 @@ def init_db() -> None:
     import models.fund  # noqa: F401
     import models.portfolio  # noqa: F401
     import models.user  # noqa: F401
-    # Alerts live outside models.* to avoid Streamlit multipage import cycles
-    import services.alerts.db_models  # noqa: F401
+    import models.alert  # noqa: F401  # Alert + AlertRule
 
     Base.metadata.create_all(bind=engine)
     # Quick connectivity check

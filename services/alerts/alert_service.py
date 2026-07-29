@@ -9,7 +9,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from database import session as db_session
-from services.alerts.db_models import Alert, AlertRule
+from models.alert import Alert, AlertRule
 from services.alerts.rules import RuleSpec, default_rules, known_alert_types
 from utils.logging_config import get_logger
 
@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 
 
 def _alert_models():
-    """Return ORM classes (imported once at module load — no nested import)."""
+    """Return ORM classes bound at module import time."""
     return Alert, AlertRule
 
 
