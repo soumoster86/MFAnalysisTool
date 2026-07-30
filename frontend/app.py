@@ -98,11 +98,15 @@ reports = st.Page("pages/15_Reports.py", title="Reports", icon="📄")
 upload_cas = st.Page("pages/16_Upload_CAS.py", title="Upload CAS", icon="📤")
 account = st.Page("pages/0_Account.py", title="Account", icon="👤")
 my_portfolios = st.Page("pages/17_My_Portfolios.py", title="My Portfolios", icon="💼")
+screener = st.Page("pages/18_Screener.py", title="Screener", icon="🔎")
 
+# Navigation is an explicit list, not automatic pages/ discovery — a new file
+# under pages/ is reachable by URL but stays out of the sidebar until it is
+# registered here and placed in a group below.
 nav = st.navigation(
     {
         "Overview": [dashboard, fund_db, upload_cas, my_portfolios, account],
-        "Analysis": [health, analyzer, overlap, compare, xray],
+        "Analysis": [screener, health, analyzer, overlap, compare, xray],
         "Planning": [goals, recommend, optimizer],
         "Intelligence": [ml_engine, assistant, alerts],
         "Output": [viz, reports],
