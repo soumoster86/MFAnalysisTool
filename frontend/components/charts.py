@@ -8,7 +8,27 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from frontend.theme import style_fig
+from frontend.theme import BG_DEEP, SERIES, SURFACE_2, style_fig
+
+# A sunburst slice below this share of the total has no room for a label; it
+# would overlap its neighbours rather than read as text. Leaves need a bigger
+# share than sectors: the outer ring is thinner, so radial text there is clipped
+# long before an inner-ring label runs out of room.
+MIN_LABEL_SHARE = 0.015
+MIN_LEAF_LABEL_SHARE = 0.035
+
+
+def _shade(hex_colour: str, amount: float) -> str:
+    """Lighten (amount > 0) or darken (amount < 0) a #rrggbb colour."""
+    raw = hex_colour.lstrip("#")
+    if len(raw) != 6:
+        return hex_colour
+    channels = [int(raw[i : i + 2], 16) for i in (0, 2, 4)]
+    out = []
+    for value in channels:
+        target = 255 if amount > 0 else 0
+        out.append(int(round(value + (target - value) * abs(amount))))
+    return "#{:02x}{:02x}{:02x}".format(*out)
 
 
 def line_nav(nav: pd.Series, title: str = "NAV") -> go.Figure:
@@ -686,9 +706,17 @@ def bar_scores(scores: dict, title: str = "Score Breakdown") -> go.Figure:
     return style_fig(fig)
 
 
-def sunburst_from_holdings(holdings: pd.DataFrame, title: str = "Holdings Sunburst") -> go.Figure:
+def sunburst_from_holdings(
+    holdings: pd.DataFrame,
+    title: str = "Holdings Sunburst",
+    root_label: str = "Holdings",
+) -> go.Figure:
     """
     Sector → security sunburst from fund holdings.
+
+    `root_label` names the centre. It defaults to a neutral "Holdings" because
+    the caller decides whether the frame is one fund's book or a look-through
+    of several; labelling a single fund's holdings "Portfolio" misrepresents it.
 
     Robust to Groww/CAS quirks: negative weights, null sectors, duplicates,
     and very wide books (caps leaf count so the browser stays responsive).
@@ -756,8 +784,10 @@ def sunburst_from_holdings(holdings: pd.DataFrame, title: str = "Holdings Sunbur
         .sort_values("weight", ascending=False)
     )
 
-    # Cap leaves for readability/performance; roll the rest into "Other"
-    max_leaves = 40
+    # Cap leaves for readability/performance; roll the rest into "Other".
+    # Forty leaves put ~9° of arc under each label, which renders as a ring of
+    # overlapping rotated text — legible only when zoomed.
+    max_leaves = 22
     if len(work) > max_leaves:
         head = work.head(max_leaves).copy()
         tail_w = float(work.iloc[max_leaves:]["weight"].sum())
@@ -776,45 +806,57 @@ def sunburst_from_holdings(holdings: pd.DataFrame, title: str = "Holdings Sunbur
     try:
         # go.Sunburst is more reliable than px path= with Series quirks
         # Hierarchy: root → sector → security
-        sectors = work.groupby("sector", as_index=False)["weight"].sum()
-        labels: list[str] = ["Portfolio"]
+        sectors = work.groupby("sector", as_index=False)["weight"].sum().sort_values(
+            "weight", ascending=False
+        )
+        total = float(work["weight"].sum()) or 1.0
+
+        labels: list[str] = [root_label]
         parents: list[str] = [""]
-        values: list[float] = [float(work["weight"].sum())]
+        values: list[float] = [total]
         ids: list[str] = ["root"]
-        colors: list[str] = ["#1f6feb"]
+        colors: list[str] = [SURFACE_2]
+        text: list[str] = [root_label]
 
-        palette = [
-            "#58a6ff",
-            "#3fb950",
-            "#d2a8ff",
-            "#ffa657",
-            "#f85149",
-            "#79c0ff",
-            "#a5d6ff",
-            "#7ee787",
-            "#ff7b72",
-            "#d2a8ff",
-        ]
+        def _label_if_room(
+            name: str, weight: float, chars: int, threshold: float = MIN_LABEL_SHARE
+        ) -> str:
+            """Text only where the slice is wide enough to hold it.
+
+            A label on a 1% slice cannot be read at any font size — it just
+            overlaps its neighbours. Those stay reachable via hover and click.
+            """
+            if weight / total < threshold:
+                return ""
+            return name if len(name) <= chars else name[: chars - 1] + "…"
+
         sector_color: dict[str, str] = {}
-        for i, row in sectors.iterrows():
+        for i, (_, row) in enumerate(sectors.iterrows()):
             sec = str(row["sector"])
-            sid = f"sec::{sec}"
-            sector_color[sec] = palette[i % len(palette)]
-            labels.append(sec if len(sec) <= 28 else sec[:27] + "…")
+            weight = float(row["weight"])
+            sector_color[sec] = SERIES[i % len(SERIES)]
+            labels.append(sec)
             parents.append("root")
-            values.append(float(row["weight"]))
-            ids.append(sid)
+            values.append(weight)
+            ids.append(f"sec::{sec}")
             colors.append(sector_color[sec])
+            text.append(_label_if_room(sec, weight, 22))
 
+        # Leaves alternate light/dark within their sector so neighbouring
+        # holdings stay distinguishable instead of merging into one band.
+        per_sector_index: dict[str, int] = {}
         for _, row in work.iterrows():
             sec = str(row["sector"])
             name = str(row["security"])
-            label = name if len(name) <= 32 else name[:31] + "…"
-            labels.append(label)
+            weight = float(row["weight"])
+            idx = per_sector_index.get(sec, 0)
+            per_sector_index[sec] = idx + 1
+            labels.append(name)
             parents.append(f"sec::{sec}")
-            values.append(float(row["weight"]))
+            values.append(weight)
             ids.append(f"sec::{sec}::name::{name}")
-            colors.append(sector_color.get(sec, "#58a6ff"))
+            colors.append(_shade(sector_color.get(sec, SERIES[0]), 0.24 if idx % 2 else -0.1))
+            text.append(_label_if_room(name, weight, 16, MIN_LEAF_LABEL_SHARE))
 
         fig = go.Figure(
             go.Sunburst(
@@ -822,16 +864,24 @@ def sunburst_from_holdings(holdings: pd.DataFrame, title: str = "Holdings Sunbur
                 labels=labels,
                 parents=parents,
                 values=values,
+                text=text,
+                textinfo="text",
                 branchvalues="total",
-                marker=dict(colors=colors, line=dict(color="#0b0e11", width=1)),
-                hovertemplate="<b>%{label}</b><br>Weight: %{value:.2f}%<br>%{percentParent:.1%} of parent<extra></extra>",
+                insidetextorientation="radial",
+                marker=dict(colors=colors, line=dict(color=BG_DEEP, width=1.2)),
+                # Hover carries the full name, so truncation above costs nothing.
+                hovertemplate=(
+                    "<b>%{label}</b><br>Weight: %{value:.2f}%"
+                    "<br>%{percentParent:.1%} of parent<extra></extra>"
+                ),
                 maxdepth=3,
             )
         )
+        fig.update_traces(textfont=dict(size=11, color="#0c1116", family="IBM Plex Sans"))
         fig.update_layout(
             title=title,
-            height=480,
-            margin=dict(l=10, r=10, t=50, b=10),
+            height=560,
+            margin=dict(l=10, r=10, t=52, b=10),
         )
         return style_fig(fig)
     except Exception as exc:

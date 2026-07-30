@@ -15,9 +15,10 @@ from frontend.components.charts import (
     sunburst_from_holdings,
     treemap_alloc,
 )
+from frontend.components.page import empty_state, page_header
 from frontend.components.provenance import render_provenance
-from frontend.state import get_fund_service, get_portfolio_analyzer, init_portfolio_holdings
-from frontend.components.page import page_header
+from frontend.components.ui_blocks import short_fund_name
+from frontend.state import get_cached_analysis, get_fund_service, init_portfolio_holdings
 from frontend.theme import apply_theme
 from analytics.optimizer import PortfolioOptimizer
 
@@ -29,8 +30,40 @@ page_header(
     "📉",
 )
 
-analysis = get_portfolio_analyzer().analyze(init_portfolio_holdings())
+holdings = init_portfolio_holdings()
 svc = get_fund_service()
+
+if not holdings:
+    empty_state(
+        "No portfolio loaded",
+        "Import a CAS, open a saved portfolio, or add holdings on the Dashboard.",
+        icon="📈",
+    )
+    st.stop()
+
+n_funds = len([h for h in holdings if h.get("amfi_code")])
+c1, c2 = st.columns([1, 3])
+with c1:
+    force = st.button("Refresh", use_container_width=True)
+with c2:
+    deep = st.checkbox(
+        "Deep analysis",
+        value=n_funds <= 12,
+        help=(
+            "Fetches stock-level holdings so sector charts and look-through "
+            "weights are available. Slower on large portfolios."
+        ),
+    )
+
+# Previously this called analyze() directly, so every tab click re-ran the
+# whole analysis; the cache keys on the holdings and mode.
+try:
+    analysis = get_cached_analysis(
+        holdings, mode="full" if deep else "fast", force=force
+    )
+except Exception as exc:
+    st.error(f"Analysis failed: {exc}")
+    st.stop()
 
 render_provenance(analysis.data_sources, what="These charts")
 
@@ -45,11 +78,70 @@ with tab1:
     c2.plotly_chart(allocation_pie(analysis.asset_allocation, "Asset Pie"), use_container_width=True)
 
 with tab2:
-    if analysis.holdings_detail:
-        code = analysis.holdings_detail[0]["amfi_code"]
-        hdf = svc.get_holdings(code)
-        st.plotly_chart(sunburst_from_holdings(hdf), use_container_width=True)
-        st.dataframe(analysis.top_holdings, use_container_width=True, hide_index=True)
+    if not analysis.holdings_detail:
+        empty_state(
+            "No holdings loaded",
+            "Import a CAS or open a saved portfolio to chart what your funds hold.",
+            icon="🗂️",
+        )
+    else:
+        # The sunburst shows one fund's book. It previously rendered the first
+        # holding with its centre labelled "Portfolio", which read as a
+        # look-through of everything — pick the fund explicitly instead.
+        by_value = sorted(
+            analysis.holdings_detail,
+            key=lambda r: -(r.get("current_value") or 0),
+        )
+        choices = {
+            f"{(r.get('scheme_name') or r['amfi_code'])[:52]}": str(r["amfi_code"])
+            for r in by_value
+        }
+        picked = st.selectbox("Show holdings of", list(choices), key="viz_sunburst_fund")
+        code = choices[picked]
+
+        with st.spinner("Loading holdings…"):
+            hdf = svc.get_holdings(code)
+        st.plotly_chart(
+            sunburst_from_holdings(
+                hdf,
+                title=f"{picked} — sector and stock breakdown",
+                root_label=short_fund_name(picked, 18),
+            ),
+            use_container_width=True,
+        )
+        st.caption(
+            "Slices too small to label are still available on hover, and clicking "
+            "a sector zooms into it."
+        )
+
+        st.subheader("Largest look-through holdings")
+        if analysis.top_holdings:
+            top_df = pd.DataFrame(analysis.top_holdings).rename(
+                columns={"security": "Security", "weight_pct": "Portfolio weight %"}
+            )
+            st.dataframe(
+                top_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Portfolio weight %": st.column_config.ProgressColumn(
+                        "Portfolio weight %",
+                        min_value=0,
+                        max_value=float(max(top_df["Portfolio weight %"].max(), 1.0)),
+                        format="%.2f%%",
+                    )
+                },
+            )
+        else:
+            # Fast mode skips the stock-level fetch, so this table was silently
+            # blank for any portfolio big enough to trigger it.
+            empty_state(
+                "Look-through holdings need a deep analysis",
+                "Fast mode skips the stock-level fetch for large portfolios. "
+                "Turn on Deep analysis above to aggregate stock weights across "
+                "every fund.",
+                icon="🔍",
+            )
 
 with tab3:
     if analysis.correlation:
