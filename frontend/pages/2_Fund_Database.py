@@ -13,14 +13,18 @@ from frontend.components.charts import (
 )
 from frontend.components.ui_blocks import insight_cards
 from frontend.state import get_fund_service
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 from services.data.market_client import get_market_client
 from utils.helpers import pct
 
 apply_theme()
 
-st.title("Mutual Fund Database")
-st.caption("Live AMFI scheme master · historical NAV charts · holdings preview")
+page_header(
+    "Mutual Fund Database",
+    "Live AMFI scheme master · historical NAV charts · holdings preview",
+    "🗄",
+)
 
 svc = get_fund_service()
 

@@ -9,13 +9,17 @@ from analytics.optimizer import PortfolioOptimizer
 from frontend.components.charts import efficient_frontier
 from frontend.components.provenance import provenance_for_codes, render_provenance
 from frontend.state import get_fund_service, init_portfolio_holdings
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 from utils.helpers import pct
 
 apply_theme()
 
-st.title("Portfolio Optimizer")
-st.caption("Mean-variance · Max Sharpe · Min Variance · Risk Parity · Black-Litterman (simple)")
+page_header(
+    "Portfolio Optimizer",
+    "Mean-variance · Max Sharpe · Min Variance · Risk Parity · Black-Litterman (simple)",
+    "📐",
+)
 
 svc = get_fund_service()
 holdings = init_portfolio_holdings()

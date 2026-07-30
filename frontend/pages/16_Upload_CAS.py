@@ -12,16 +12,18 @@ from frontend.state import (
     save_session_to_vault,
     set_portfolio_holdings,
 )
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 from services.portfolio.import_service import PortfolioImportService
 from utils.helpers import format_inr
 
 apply_theme()
 
-st.title("Upload MF Holdings (MFCentral CAS)")
-st.caption(
+page_header(
+    "Upload MF Holdings (MFCentral CAS)",
     "Import your MFCentral Consolidated Account Summary PDF — SoA + Demat holdings "
-    "map to AMFI schemes and feed Dashboard / Portfolio Analyzer."
+    "map to AMFI schemes and feed Dashboard / Portfolio Analyzer.",
+    "📤",
 )
 
 st.info(

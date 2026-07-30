@@ -6,16 +6,18 @@ import streamlit as st
 
 from frontend.components.provenance import render_provenance
 from frontend.state import get_portfolio_analyzer, init_portfolio_holdings
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 from services.ai.assistant import FinancialAssistant
 from services.data.provenance import Provenance
 
 apply_theme()
 
-st.title("AI Financial Assistant")
-st.caption(
+page_header(
+    "AI Financial Assistant",
     "Retrieval-grounded answers with citations · portfolio context · "
-    "works without an API key"
+    "works without an API key",
+    "💬",
 )
 
 assistant = FinancialAssistant()

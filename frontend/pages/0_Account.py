@@ -5,12 +5,16 @@ from __future__ import annotations
 import streamlit as st
 
 from frontend.state import clear_auth, get_current_user, is_logged_in
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 
 apply_theme()
 
-st.title("Account")
-st.caption("Signed-in profile and session controls.")
+page_header(
+    "Account",
+    "Signed-in profile and session controls.",
+    "👤",
+)
 
 if not is_logged_in():
     st.warning("You are not signed in. Return to the landing page to authenticate.")

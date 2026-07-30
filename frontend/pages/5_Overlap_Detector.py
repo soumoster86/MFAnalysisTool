@@ -18,13 +18,15 @@ from frontend.components.ui_blocks import (
 )
 from frontend.components.provenance import provenance_for_codes, render_provenance
 from frontend.state import get_fund_service, init_portfolio_holdings
-from frontend.theme import apply_theme
+from frontend.components.page import page_header
+from frontend.theme import NEGATIVE, SERIES, apply_theme
 
 apply_theme()
 
-st.title("Portfolio Overlap Detector")
-st.caption(
-    "See how much your funds share the same stocks — heatmap, concentrations, and plain-language tips."
+page_header(
+    "Portfolio Overlap Detector",
+    "See how much your funds share the same stocks — heatmap, concentrations, and plain-language tips.",
+    "🔗",
 )
 
 holdings = init_portfolio_holdings()
@@ -155,12 +157,12 @@ st.subheader("Where money is concentrated")
 c1, c2 = st.columns(2)
 with c1:
     st.plotly_chart(
-        horizontal_bar(result.amc_concentration, "AMC concentration", color="#d2a8ff"),
+        horizontal_bar(result.amc_concentration, "AMC concentration", color=SERIES[2]),
         use_container_width=True,
     )
 with c2:
     st.plotly_chart(
-        horizontal_bar(result.category_concentration, "Category concentration", color="#ffa657"),
+        horizontal_bar(result.category_concentration, "Category concentration", color=SERIES[3]),
         use_container_width=True,
     )
 
@@ -204,7 +206,7 @@ if result.top_repeated_stocks:
     }
     if chart_data:
         st.plotly_chart(
-            horizontal_bar(chart_data, "Top overlapping stocks by portfolio weight", color="#f85149"),
+            horizontal_bar(chart_data, "Top overlapping stocks by portfolio weight", color=NEGATIVE),
             use_container_width=True,
         )
 else:

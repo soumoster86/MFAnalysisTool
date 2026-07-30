@@ -7,6 +7,7 @@ import streamlit as st
 
 from frontend.components.provenance import provenance_for_codes, render_provenance
 from frontend.state import get_fund_service
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 from ml.feature_engineering import FeatureEngineer
 from ml.model_trainer import ModelTrainer
@@ -14,9 +15,10 @@ from utils.helpers import pct
 
 apply_theme()
 
-st.title("Machine Learning Engine")
-st.caption(
-    "Feature engineering · RF / GBM / XGB / LGBM / CatBoost / Stacking · TimeSeriesSplit · auto best model"
+page_header(
+    "Machine Learning Engine",
+    "Feature engineering · RF / GBM / XGB / LGBM / CatBoost / Stacking · TimeSeriesSplit · auto best model",
+    "🤖",
 )
 
 svc = get_fund_service()

@@ -16,13 +16,17 @@ from frontend.state import (
     set_active_portfolio_id,
     set_portfolio_holdings,
 )
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 from utils.helpers import format_inr
 
 apply_theme()
 
-st.title("My Portfolios")
-st.caption("Save, load, and manage portfolios — reopen after app restart.")
+page_header(
+    "My Portfolios",
+    "Save, load, and manage portfolios — reopen after app restart.",
+    "💼",
+)
 
 if not is_logged_in():
     st.warning("Sign in to use the portfolio vault.")

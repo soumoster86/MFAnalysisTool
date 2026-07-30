@@ -8,13 +8,17 @@ from frontend.components.charts import bar_scores, gauge_score
 from frontend.components.ui_blocks import horizontal_bar, insight_cards, score_pill, tip_list
 from frontend.components.provenance import provenance_for_codes, render_provenance
 from frontend.state import get_fund_service
-from frontend.theme import apply_theme
+from frontend.components.page import page_header
+from frontend.theme import POSITIVE, apply_theme
 from utils.helpers import pct
 
 apply_theme()
 
-st.title("Fund Health Score")
-st.caption("0–100 multi-factor model — growth, risk, quality, cost, consistency, diversification.")
+page_header(
+    "Fund Health Score",
+    "0–100 multi-factor model — growth, risk, quality, cost, consistency, diversification.",
+    "💚",
+)
 
 svc = get_fund_service()
 q = st.text_input("Search fund", "flexi cap")
@@ -95,7 +99,7 @@ if factors:
     st.caption("Each bar is a contributing factor (0–100). Higher is better for that factor.")
     st.plotly_chart(
         horizontal_bar({str(k).replace("_", " ").title(): float(v) for k, v in factors.items()},
-                       "Factor contributions", color="#3fb950"),
+                       "Factor contributions", color=POSITIVE),
         use_container_width=True,
     )
 

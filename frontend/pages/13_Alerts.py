@@ -19,14 +19,16 @@ from frontend.state import (
     init_portfolio_holdings,
     is_logged_in,
 )
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 
 apply_theme()
 
-st.title("Alerts")
-st.caption(
+page_header(
+    "Alerts",
     "Real NAV · drawdown · P&L · concentration · overlap rules — "
-    "evaluate session portfolio or vault · Celery beat ready"
+    "evaluate session portfolio or vault · Celery beat ready",
+    "🔔",
 )
 
 # ---------------------------------------------------------------------------

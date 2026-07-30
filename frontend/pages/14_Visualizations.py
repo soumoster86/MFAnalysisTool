@@ -17,13 +17,17 @@ from frontend.components.charts import (
 )
 from frontend.components.provenance import render_provenance
 from frontend.state import get_fund_service, get_portfolio_analyzer, init_portfolio_holdings
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 from analytics.optimizer import PortfolioOptimizer
 
 apply_theme()
 
-st.title("Visualization Lab")
-st.caption("Plotly · treemap · heatmap · sunburst · frontier · drawdown · risk-return")
+page_header(
+    "Visualization Lab",
+    "Plotly · treemap · heatmap · sunburst · frontier · drawdown · risk-return",
+    "📉",
+)
 
 analysis = get_portfolio_analyzer().analyze(init_portfolio_holdings())
 svc = get_fund_service()

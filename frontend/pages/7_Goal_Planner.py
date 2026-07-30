@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import streamlit as st
 
+import plotly.graph_objects as go
+
 from analytics.goal_planner import GoalPlanner
 from frontend.components.charts import monte_carlo_hist
-from frontend.theme import apply_theme
+from frontend.components.page import page_header
+from frontend.theme import INFO, apply_theme, style_fig
 from utils.helpers import format_inr, pct
-import plotly.graph_objects as go
-from frontend.theme import style_fig
 
 apply_theme()
 
-st.title("Goal Planner")
-st.caption("Retirement / goal corpus · Monte Carlo · required SIP & return")
+page_header(
+    "Goal Planner",
+    "Retirement / goal corpus · Monte Carlo · required SIP & return",
+    "🎯",
+)
 
 c1, c2, c3 = st.columns(3)
 with c1:
@@ -99,7 +103,7 @@ if res.percentiles:
     }
     chart = {labels.get(k, k): float(v) for k, v in res.percentiles.items()}
     st.plotly_chart(
-        horizontal_bar(chart, "Terminal corpus by percentile (₹)", x_title="₹", color="#58a6ff"),
+        horizontal_bar(chart, "Terminal corpus by percentile (₹)", x_title="₹", color=INFO),
         use_container_width=True,
     )
     st.dataframe(

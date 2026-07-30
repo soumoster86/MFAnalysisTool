@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import streamlit as st
 
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 from ml.recommender import RecommendationEngine
 from utils.helpers import format_inr, pct
 
 apply_theme()
 
-st.title("Recommendation Engine")
-st.caption("Risk appetite · horizon · SIP · age → ranked funds & allocation")
+page_header(
+    "Recommendation Engine",
+    "Risk appetite · horizon · SIP · age → ranked funds & allocation",
+    "✨",
+)
 
 c1, c2 = st.columns(2)
 with c1:

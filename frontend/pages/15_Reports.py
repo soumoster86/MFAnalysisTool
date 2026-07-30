@@ -9,16 +9,18 @@ import streamlit as st
 
 from frontend.components.provenance import render_provenance
 from frontend.state import get_cached_analysis, init_portfolio_holdings
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 from services.ai.assistant import FinancialAssistant
 from services.reports.report_service import ReportService
 
 apply_theme()
 
-st.title("Reports")
-st.caption(
+page_header(
+    "Reports",
     "Branded PDF · formatted Excel workbook · PowerPoint deck — "
-    "charts, tables and data-source disclosure included"
+    "charts, tables and data-source disclosure included",
+    "📄",
 )
 
 holdings = init_portfolio_holdings()

@@ -14,14 +14,16 @@ if str(_ROOT) not in sys.path:
 import pandas as pd
 import streamlit as st
 
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 
 apply_theme()
 
-st.title("Screener")
-st.caption(
+page_header(
+    "Screener",
     "Top funds by health score — per category and overall · "
-    "Direct Growth plans · NAV-based scoring"
+    "Direct Growth plans · NAV-based scoring",
+    "🔎",
 )
 
 try:

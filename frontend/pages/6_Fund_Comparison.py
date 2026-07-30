@@ -9,14 +9,18 @@ from frontend.components.charts import line_nav, risk_return_scatter
 from frontend.components.ui_blocks import risk_return_ranking_table
 from frontend.components.provenance import provenance_for_codes, render_provenance
 from frontend.state import get_fund_service
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 from services.ai.assistant import FinancialAssistant
 from utils.helpers import pct
 
 apply_theme()
 
-st.title("Mutual Fund Comparison")
-st.caption("Compare up to 5 funds · risk metrics · capture ratios · AI summary")
+page_header(
+    "Mutual Fund Comparison",
+    "Compare up to 5 funds · risk metrics · capture ratios · AI summary",
+    "⚖",
+)
 
 svc = get_fund_service()
 q = st.text_input("Search to add funds", "direct growth")

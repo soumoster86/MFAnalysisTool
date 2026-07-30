@@ -17,12 +17,16 @@ from frontend.components.ui_blocks import (
 )
 from frontend.components.provenance import provenance_for_codes, render_provenance
 from frontend.state import get_fund_service
+from frontend.components.page import page_header
 from frontend.theme import apply_theme
 
 apply_theme()
 
-st.title("Mutual Fund X-Ray")
-st.caption("Hidden risks, style, concentration, costs — plain language with charts.")
+page_header(
+    "Mutual Fund X-Ray",
+    "Hidden risks, style, concentration, costs — plain language with charts.",
+    "🔬",
+)
 
 svc = get_fund_service()
 q = st.text_input("Search fund", "mid cap")

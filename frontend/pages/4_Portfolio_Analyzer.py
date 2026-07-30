@@ -19,13 +19,17 @@ from frontend.components.ui_blocks import (
 )
 from frontend.components.provenance import render_provenance
 from frontend.state import get_cached_analysis, init_portfolio_holdings, set_portfolio_holdings
-from frontend.theme import apply_theme
+from frontend.components.page import page_header
+from frontend.theme import INFO, SERIES, apply_theme
 from utils.helpers import format_inr, pct
 
 apply_theme()
 
-st.title("Portfolio Analyzer")
-st.caption("Health, risk, allocations, and concentration — charts first, jargon second.")
+page_header(
+    "Portfolio Analyzer",
+    "Health, risk, allocations, and concentration — charts first, jargon second.",
+    "🧭",
+)
 
 st.page_link(
     "pages/16_Upload_CAS.py",
@@ -153,7 +157,7 @@ with tab_overview:
             for r in analysis.holdings_detail
         }
         st.plotly_chart(
-            horizontal_bar(weight_map, "Weight by scheme", color="#58a6ff"),
+            horizontal_bar(weight_map, "Weight by scheme", color=INFO),
             use_container_width=True,
         )
         # Readable table without raw dumps
@@ -288,7 +292,7 @@ with tab_overlap:
             )
         if ov.get("amc_concentration"):
             st.plotly_chart(
-                horizontal_bar(ov["amc_concentration"], "AMC concentration", color="#d2a8ff"),
+                horizontal_bar(ov["amc_concentration"], "AMC concentration", color=SERIES[2]),
                 use_container_width=True,
             )
         tip_list(ov.get("suggestions") or [], title="Overlap takeaways")

@@ -10,7 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from frontend.theme import score_class, style_fig
+from frontend.theme import ACCENT, BG_DEEP, TEXT, TEXT_FAINT, score_class, style_fig
 
 
 # ---------------------------------------------------------------------------
@@ -92,28 +92,35 @@ def insight_cards(items: list[dict[str, Any]], cols: int = 3) -> None:
         return
     n = min(cols, len(items))
     columns = st.columns(n)
-    tone_border = {
-        "good": "#238636",
-        "warn": "#9e6a03",
-        "bad": "#da3633",
-        "neutral": "#243041",
+    # Tone drives an accent stripe rather than the whole border: a full
+    # coloured outline on every card made a KPI row look like an error state.
+    tone_accent = {
+        "good": "var(--positive)",
+        "warn": "var(--caution)",
+        "bad": "var(--negative)",
+        "neutral": "var(--border)",
     }
     for i, item in enumerate(items):
         with columns[i % n]:
             tone = item.get("tone", "neutral")
-            border = tone_border.get(tone, tone_border["neutral"])
+            accent = tone_accent.get(tone, tone_accent["neutral"])
             help_txt = item.get("help") or ""
+            value_colour = accent if tone in {"good", "bad"} else "var(--text)"
             st.markdown(
                 f"""
-                <div style="background:#151a21;border:1px solid {border};border-radius:10px;
-                            padding:12px 14px;margin-bottom:8px;min-height:88px;">
-                  <div style="color:#8b9bb4;font-size:0.72rem;text-transform:uppercase;
-                              letter-spacing:0.04em;">{item.get('label','')}</div>
-                  <div style="color:#e8eef7;font-family:'IBM Plex Mono',monospace;
-                              font-size:1.35rem;font-weight:600;margin-top:4px;">
+                <div style="background:linear-gradient(180deg,var(--surface) 0%,#12171e 100%);
+                            border:1px solid var(--border);border-left:3px solid {accent};
+                            border-radius:var(--radius);padding:12px 14px;margin-bottom:8px;
+                            min-height:92px;box-shadow:0 2px 10px rgba(0,0,0,0.28);">
+                  <div style="color:var(--text-faint);font-size:0.72rem;text-transform:uppercase;
+                              letter-spacing:0.07em;font-weight:600;">{item.get('label','')}</div>
+                  <div style="color:{value_colour};font-family:var(--font-mono);
+                              font-size:1.4rem;font-weight:600;margin-top:5px;
+                              letter-spacing:-0.01em;">
                     {item.get('value','—')}
                   </div>
-                  <div style="color:#8b9bb4;font-size:0.78rem;margin-top:4px;">{help_txt}</div>
+                  <div style="color:var(--text-dim);font-size:0.78rem;margin-top:4px;
+                              line-height:1.1rem;">{help_txt}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -167,17 +174,38 @@ def kv_table(data: dict[str, Any], title: Optional[str] = None, value_fmt: str =
 # Charts
 # ---------------------------------------------------------------------------
 
+def empty_fig(title: str = "", message: str = "No data yet") -> go.Figure:
+    """Consistent placeholder so an empty chart reads as intentional."""
+    fig = go.Figure()
+    fig.update_layout(
+        title=title,
+        height=260,
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        annotations=[
+            dict(
+                text=message,
+                showarrow=False,
+                font=dict(color=TEXT_FAINT, size=13),
+                xref="paper",
+                yref="paper",
+                x=0.5,
+                y=0.5,
+            )
+        ],
+    )
+    return style_fig(fig)
+
+
 def horizontal_bar(
     data: dict[str, float],
     title: str = "",
     x_title: str = "%",
-    color: str = "#58a6ff",
+    color: Optional[str] = None,
     height: Optional[int] = None,
 ) -> go.Figure:
     if not data:
-        fig = go.Figure()
-        fig.update_layout(title=title, annotations=[dict(text="No data", showarrow=False)])
-        return style_fig(fig)
+        return empty_fig(title)
     items = sorted(data.items(), key=lambda x: x[1])
     raw_names = [str(k) for k, _ in items]
     labels = short_labels(raw_names, max_len=36)
@@ -187,10 +215,14 @@ def horizontal_bar(
             x=values,
             y=labels,
             orientation="h",
-            marker=dict(color=color, line=dict(width=0)),
+            marker=dict(color=color or ACCENT, line=dict(width=0)),
             text=[f"{v:.1f}%" if abs(v) <= 1000 else f"{v:,.0f}" for v in values],
             textposition="outside",
+            textfont=dict(size=11),
             cliponaxis=False,
+            # Full name in the tooltip — the axis label is truncated to fit.
+            customdata=raw_names,
+            hovertemplate="<b>%{customdata}</b><br>%{x:.2f}" + x_title + "<extra></extra>",
         )
     )
     h = height or max(280, 28 * len(labels) + 80)
@@ -199,7 +231,8 @@ def horizontal_bar(
         xaxis_title=x_title,
         yaxis_title="",
         height=h,
-        margin=dict(l=10, r=40, t=40, b=30),
+        margin=dict(l=10, r=54, t=44, b=30),
+        showlegend=False,
     )
     return style_fig(fig)
 
@@ -348,30 +381,57 @@ def top_holdings_bar(
 
 def allocation_donut(alloc: dict, title: str = "Allocation") -> go.Figure:
     if not alloc:
-        fig = go.Figure()
-        fig.update_layout(title=title, annotations=[dict(text="No data", showarrow=False)])
-        return style_fig(fig)
-    labels = [short_fund_name(str(k), 30) for k in alloc.keys()]
-    values = list(alloc.values())
+        return empty_fig(title)
+    ordered = sorted(alloc.items(), key=lambda kv: -float(kv[1] or 0))
+    raw = [str(k) for k, _ in ordered]
+    labels = [short_fund_name(name, 30) for name in raw]
+    values = [float(v) for _, v in ordered]
+
+    # Outside labels collide badly once there are more than a handful of
+    # slices — a 12-sector donut became an unreadable ring of text. Past that
+    # point, label only the slices big enough to hold text and let the legend
+    # carry the rest.
+    crowded = len(values) > 6
     fig = go.Figure(
         data=[
             go.Pie(
                 labels=labels,
                 values=values,
-                hole=0.52,
-                textinfo="label+percent",
-                textposition="outside",
-                insidetextorientation="radial",
-                marker=dict(line=dict(color="#0b0e11", width=1)),
+                hole=0.58,
+                sort=False,
+                direction="clockwise",
+                textinfo="percent" if crowded else "label+percent",
+                textposition="inside" if crowded else "outside",
+                texttemplate="%{percent:.0%}" if crowded else None,
+                insidetextorientation="horizontal",
+                marker=dict(line=dict(color=BG_DEEP, width=1.5)),
+                customdata=raw,
+                hovertemplate="<b>%{customdata}</b><br>%{value:.2f}%"
+                "<br>%{percent} of total<extra></extra>",
             )
         ]
+    )
+    fig.update_traces(
+        # Hide the label on slivers, where it would spill over its neighbours.
+        textfont=dict(size=11),
+        insidetextfont=dict(color="#08130c"),
     )
     fig.update_layout(
         title=title,
         showlegend=True,
-        legend=dict(orientation="h", y=-0.08),
-        margin=dict(l=10, r=10, t=40, b=10),
+        legend=dict(orientation="v", x=1.02, xanchor="left", y=0.5, yanchor="middle"),
+        margin=dict(l=10, r=10, t=44, b=10),
         height=380,
+        # Centre readout, so the donut hole carries information.
+        annotations=[
+            dict(
+                text=f"<b>{len(values)}</b><br><span style='font-size:10px'>buckets</span>",
+                showarrow=False,
+                font=dict(size=15, color=TEXT),
+                x=0.5,
+                y=0.5,
+            )
+        ],
     )
     return style_fig(fig)
 
@@ -385,7 +445,7 @@ def weights_bar(weights: dict[str, float], title: str = "Allocation weights") ->
     for k, v in weights.items():
         fv = float(v)
         data[short_fund_name(k, 32)] = fv * 100 if fv <= 1.0 else fv
-    return horizontal_bar(data, title=title, x_title="Weight %", color="#3fb950")
+    return horizontal_bar(data, title=title, x_title="Weight %", color=None)
 
 
 def score_pill(score: float, label: str = "Score") -> None:
