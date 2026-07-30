@@ -45,6 +45,13 @@ try:
                 "schedule": 86400.0,
                 "kwargs": {"max_users": 50, "max_funds": 15},
             },
+            # Screener scores: batches through the universe, re-scoring what it
+            # already has so rankings track the latest NAV.
+            "score-fund-universe-nightly": {
+                "task": "workers.tasks.score_fund_universe",
+                "schedule": 86400.0,
+                "kwargs": {"limit": 500, "rescore": True},
+            },
         },
     )
 except Exception as exc:  # pragma: no cover

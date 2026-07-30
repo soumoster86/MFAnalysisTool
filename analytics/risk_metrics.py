@@ -12,6 +12,13 @@ from config.settings import settings
 from utils.helpers import safe_div
 
 
+# Below roughly half a percent annualised, a risk-adjusted ratio is dominated
+# by its denominator: an overnight fund with 0.12% volatility turns a few basis
+# points of shortfall against the risk-free rate into a Sharpe of -16, which
+# reads as catastrophic and means nothing. Report no ratio instead.
+MIN_MEANINGFUL_VOL = 0.005
+
+
 @dataclass
 class RiskMetrics:
     """Container for standard risk/return statistics."""
@@ -95,6 +102,8 @@ class RiskMetricsCalculator:
             return None
         excess = r.mean() * self.td - self.rf
         vol = self.annualized_vol(r)
+        if vol < MIN_MEANINGFUL_VOL:
+            return None
         return safe_div(excess, vol, default=None)  # type: ignore[return-value]
 
     def sortino_ratio(self, returns: pd.Series) -> Optional[float]:
@@ -105,6 +114,8 @@ class RiskMetricsCalculator:
         if len(downside) < 1:
             return None
         downside_std = float(downside.std(ddof=1) * np.sqrt(self.td))
+        if downside_std < MIN_MEANINGFUL_VOL:
+            return None
         excess = r.mean() * self.td - self.rf
         return safe_div(excess, downside_std, default=None)  # type: ignore[return-value]
 

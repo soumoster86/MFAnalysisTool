@@ -6,6 +6,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Float,
@@ -154,3 +155,54 @@ class FundDividend(Base):
     confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     fund: Mapped["Fund"] = relationship(back_populates="dividends")
+
+
+class FundScore(Base):
+    """Cached screener score for one scheme.
+
+    The screener ranks thousands of funds, so scores are computed in batches
+    and persisted here rather than recomputed per page load.
+
+    Screener scores are **NAV-based**: they deliberately skip the stock-level
+    holdings fetch, which is the slow call. The two holdings factors
+    (top-10 concentration, holdings count) are therefore absent and scored
+    neutral, so a screener score can differ slightly from the Fund Health page
+    score for the same fund. `has_holdings` records which kind this row is.
+
+    `nav_source` is stored so a fund scored on a synthetic NAV path can be kept
+    out of the rankings — ranking fabricated performance against real
+    performance would be worse than not ranking it at all.
+    """
+
+    __tablename__ = "fund_scores"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    amfi_code: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    scheme_name: Mapped[str] = mapped_column(String(512))
+    amc: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
+    subcategory: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
+
+    overall: Mapped[Optional[float]] = mapped_column(Float, nullable=True, index=True)
+    growth: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    risk: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    quality: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cost_efficiency: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    consistency: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    diversification: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    cagr: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    volatility: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sharpe: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sortino: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    max_drawdown: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    alpha: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    beta: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    expense_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    aum_cr: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    nav_source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    nav_points: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    years_covered: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    has_holdings: Mapped[bool] = mapped_column(Boolean, default=False)
+    scored_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

@@ -107,6 +107,27 @@ def evaluate_alerts(
     return out
 
 
+@_task("workers.tasks.score_fund_universe")
+def score_fund_universe(
+    limit: int = 400,
+    subcategory: str | None = None,
+    rescore: bool = False,
+) -> dict[str, Any]:
+    """Score a batch of funds for the Screener.
+
+    Scoring the whole universe is a few thousand NAV fetches, so beat runs it
+    in batches: each pass picks up where the last left off, and a nightly
+    cadence keeps scores no more than a day stale.
+    """
+    from services.screener.screener_service import ScreenerService
+
+    out = ScreenerService().score_universe(
+        limit=limit, subcategory=subcategory, rescore=rescore
+    )
+    logger.info("Screener batch: {}", out.to_dict())
+    return out.to_dict()
+
+
 @_task("workers.tasks.detect_fund_changes")
 def detect_fund_changes(
     amfi_codes: list[str] | None = None,
