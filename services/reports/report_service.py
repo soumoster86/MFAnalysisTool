@@ -1,153 +1,109 @@
-"""PDF / Excel / PowerPoint report generation."""
+"""Portfolio report generation — PDF, Excel and PowerPoint.
+
+All three formats render from one `ReportData` model so they agree on content,
+ordering and rounding. See `report_data.py`; the per-format styling lives in
+`pdf_report.py`, `excel_report.py` and `pptx_report.py`.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
-from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
 
-from config.settings import PROJECT_ROOT, settings
+from config.settings import PROJECT_ROOT
+from services.reports.excel_report import excel_bytes as _excel_bytes
+from services.reports.pdf_report import pdf_bytes as _pdf_bytes
+from services.reports.pptx_report import pptx_bytes as _pptx_bytes
+from services.reports.report_data import ReportData, build_report_data
 from utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+__all__ = ["ReportService", "build_report_data", "ReportData"]
+
+
+def _stamp(extension: str, slug: str = "portfolio_report") -> str:
+    return f"{slug}_{datetime.now():%Y%m%d_%H%M%S}.{extension}"
+
 
 class ReportService:
-    """Generate downloadable portfolio / fund reports."""
+    """Generate downloadable portfolio reports."""
 
     def __init__(self, output_dir: Optional[Path] = None) -> None:
         self.output_dir = Path(output_dir or (PROJECT_ROOT / "data" / "reports"))
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def generate_excel(
-        self,
-        *,
-        portfolio_rows: list[dict[str, Any]],
-        metrics: Optional[dict[str, Any]] = None,
-        health: Optional[dict[str, Any]] = None,
-        filename: Optional[str] = None,
-    ) -> Path:
-        fname = filename or f"mf_report_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
-        path = self.output_dir / fname
-        with pd.ExcelWriter(path, engine="openpyxl") as writer:
-            pd.DataFrame(portfolio_rows).to_excel(writer, sheet_name="Portfolio", index=False)
-            if metrics:
-                pd.DataFrame([metrics]).to_excel(writer, sheet_name="Metrics", index=False)
-            if health:
-                pd.DataFrame([health]).to_excel(writer, sheet_name="Health", index=False)
-        logger.info("Excel report written to {}", path)
+    # ------------------------------------------------------------------ bytes
+    # Bytes are the primary API: Streamlit can hand them straight to a download
+    # button, so a report needs one click rather than generate-then-download.
+    def pdf_bytes(self, data: ReportData) -> bytes:
+        return _pdf_bytes(data)
+
+    def excel_bytes(self, data: ReportData) -> bytes:
+        return _excel_bytes(data)
+
+    def pptx_bytes(self, data: ReportData) -> bytes:
+        return _pptx_bytes(data)
+
+    def render(self, data: ReportData, fmt: str) -> tuple[bytes, str, str]:
+        """(bytes, filename, mime) for 'pdf' | 'excel' | 'pptx'."""
+        key = fmt.lower().strip()
+        if key == "pdf":
+            return self.pdf_bytes(data), _stamp("pdf"), "application/pdf"
+        if key in {"excel", "xlsx"}:
+            return (
+                self.excel_bytes(data),
+                _stamp("xlsx"),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        if key in {"pptx", "powerpoint"}:
+            return (
+                self.pptx_bytes(data),
+                _stamp("pptx"),
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        raise ValueError(f"Unknown report format: {fmt!r}")
+
+    # ------------------------------------------------------------------ files
+    def save(self, data: ReportData, fmt: str, filename: Optional[str] = None) -> Path:
+        payload, default_name, _ = self.render(data, fmt)
+        path = self.output_dir / (filename or default_name)
+        path.write_bytes(payload)
+        logger.info("{} report written to {}", fmt.upper(), path)
         return path
 
-    def generate_pdf(
+    def generate_pdf(self, data: ReportData, filename: Optional[str] = None) -> Path:
+        return self.save(data, "pdf", filename)
+
+    def generate_excel(self, data: ReportData, filename: Optional[str] = None) -> Path:
+        return self.save(data, "excel", filename)
+
+    def generate_pptx(self, data: ReportData, filename: Optional[str] = None) -> Path:
+        return self.save(data, "pptx", filename)
+
+    # ------------------------------------------------------------- convenience
+    def from_analysis(
         self,
+        analysis: Any,
         *,
-        title: str,
-        summary_lines: list[str],
-        table_rows: Optional[list[dict[str, Any]]] = None,
+        title: str = "Portfolio Analysis Report",
+        subtitle: str = "",
         ai_summary: str = "",
-        filename: Optional[str] = None,
-    ) -> Path:
-        from reportlab.lib import colors
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-
-        fname = filename or f"mf_report_{datetime.now():%Y%m%d_%H%M%S}.pdf"
-        path = self.output_dir / fname
-        doc = SimpleDocTemplate(str(path), pagesize=A4)
-        styles = getSampleStyleSheet()
-        story = [
-            Paragraph(title, styles["Title"]),
-            Paragraph(f"Generated: {datetime.now():%Y-%m-%d %H:%M}", styles["Normal"]),
-            Spacer(1, 12),
-        ]
-        for line in summary_lines:
-            story.append(Paragraph(line, styles["BodyText"]))
-            story.append(Spacer(1, 6))
-        if table_rows:
-            headers = list(table_rows[0].keys())
-            data = [headers] + [[str(r.get(h, "")) for h in headers] for r in table_rows]
-            t = Table(data, repeatRows=1)
-            t.setStyle(
-                TableStyle(
-                    [
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a2e")),
-                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                        ("FONTSIZE", (0, 0), (-1, -1), 8),
-                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#f5f5f5"), colors.white]),
-                    ]
-                )
-            )
-            story.append(Spacer(1, 12))
-            story.append(t)
-        if ai_summary:
-            story.append(Spacer(1, 16))
-            story.append(Paragraph("AI Summary", styles["Heading2"]))
-            story.append(Paragraph(ai_summary.replace("\n", "<br/>"), styles["BodyText"]))
-        story.append(Spacer(1, 20))
-        story.append(
-            Paragraph(
-                "Disclaimer: Educational report only. Not investment advice.",
-                styles["Italic"],
-            )
+        max_holdings: int = 40,
+    ) -> ReportData:
+        return build_report_data(
+            analysis,
+            title=title,
+            subtitle=subtitle,
+            ai_summary=ai_summary,
+            max_holdings=max_holdings,
         )
-        doc.build(story)
-        logger.info("PDF report written to {}", path)
-        return path
 
-    def generate_pptx(
-        self,
-        *,
-        title: str,
-        bullets: list[str],
-        metrics: Optional[dict[str, Any]] = None,
-        filename: Optional[str] = None,
-    ) -> Path:
-        from pptx import Presentation
-        from pptx.util import Inches, Pt
-
-        fname = filename or f"mf_report_{datetime.now():%Y%m%d_%H%M%S}.pptx"
-        path = self.output_dir / fname
-        prs = Presentation()
-        slide = prs.slides.add_slide(prs.slide_layouts[0])
-        slide.shapes.title.text = title
-        slide.placeholders[1].text = f"MF Analysis Tool · {datetime.now():%Y-%m-%d}"
-
-        slide2 = prs.slides.add_slide(prs.slide_layouts[1])
-        slide2.shapes.title.text = "Key Points"
-        body = slide2.shapes.placeholders[1].text_frame
-        body.clear()
-        for i, b in enumerate(bullets):
-            if i == 0:
-                body.text = b
-            else:
-                p = body.add_paragraph()
-                p.text = b
-                p.level = 0
-
-        if metrics:
-            slide3 = prs.slides.add_slide(prs.slide_layouts[1])
-            slide3.shapes.title.text = "Metrics Snapshot"
-            tf = slide3.shapes.placeholders[1].text_frame
-            tf.clear()
-            for i, (k, v) in enumerate(metrics.items()):
-                line = f"{k}: {v}"
-                if i == 0:
-                    tf.text = line
-                else:
-                    p = tf.add_paragraph()
-                    p.text = line
-
-        prs.save(str(path))
-        logger.info("PPTX report written to {}", path)
-        return path
-
-    def excel_bytes(self, portfolio_rows: list[dict[str, Any]]) -> bytes:
-        buf = BytesIO()
-        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-            pd.DataFrame(portfolio_rows).to_excel(writer, index=False)
-        return buf.getvalue()
+    def holdings_csv(self, data: ReportData) -> bytes:
+        """Raw holdings as CSV, for spreadsheets that are not Excel."""
+        if not data.holdings_display:
+            return b""
+        return pd.DataFrame(data.holdings_display).to_csv(index=False).encode("utf-8")

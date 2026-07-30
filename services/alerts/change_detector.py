@@ -78,24 +78,38 @@ def _riskometer_rank(value: Any) -> Optional[int]:
     return None
 
 
+def _weight_scale(holdings: pd.DataFrame) -> float:
+    """Multiplier turning holding weights into percentage points.
+
+    Judged on the column total, not row by row: a legitimate 0.8% holding is
+    indistinguishable from a fraction on its own, and scaling it by 100 would
+    invent a sector shift that never happened.
+    """
+    try:
+        total = float(pd.to_numeric(holdings["weight_pct"], errors="coerce").abs().sum())
+    except (TypeError, ValueError, KeyError):
+        return 1.0
+    if total <= 0:
+        return 1.0
+    return 100.0 if total <= 1.5 else 1.0
+
+
 def _holdings_map(holdings: Optional[pd.DataFrame]) -> dict[str, float]:
     """{security_name: weight_pct} normalised to percent points."""
     if holdings is None or holdings.empty:
         return {}
     if "security_name" not in holdings.columns or "weight_pct" not in holdings.columns:
         return {}
+    scale = _weight_scale(holdings)
     out: dict[str, float] = {}
     for _, row in holdings.iterrows():
         name = _norm_text(row.get("security_name"))
         if not name:
             continue
         try:
-            w = float(row.get("weight_pct") or 0)
+            w = float(row.get("weight_pct") or 0) * scale
         except (TypeError, ValueError):
             continue
-        # Some providers return fractions, others percent points.
-        if 0 < w <= 1.5:
-            w *= 100
         out[name] = out.get(name, 0.0) + w
     return out
 
@@ -105,15 +119,14 @@ def _sector_map(holdings: Optional[pd.DataFrame]) -> dict[str, float]:
         return {}
     if "sector" not in holdings.columns or "weight_pct" not in holdings.columns:
         return {}
+    scale = _weight_scale(holdings)
     out: dict[str, float] = {}
     for _, row in holdings.iterrows():
         sec = _norm_text(row.get("sector")) or "Other"
         try:
-            w = float(row.get("weight_pct") or 0)
+            w = float(row.get("weight_pct") or 0) * scale
         except (TypeError, ValueError):
             continue
-        if 0 < w <= 1.5:
-            w *= 100
         out[sec] = out.get(sec, 0.0) + w
     return out
 

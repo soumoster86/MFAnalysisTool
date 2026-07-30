@@ -57,6 +57,25 @@ class PortfolioAnalysis:
         return d
 
 
+def _weight_scale(holdings: pd.DataFrame, column: str = "weight_pct") -> float:
+    """Multiplier turning a fund's holding weights into percentage points.
+
+    Returns 100 when the column looks like fractions (sums to about 1) and 1
+    when it already looks like percent points. Judged on the column total, not
+    on individual rows — small holdings are indistinguishable from fractions
+    one row at a time.
+    """
+    if holdings is None or holdings.empty or column not in holdings.columns:
+        return 1.0
+    try:
+        total = float(pd.to_numeric(holdings[column], errors="coerce").abs().sum())
+    except (TypeError, ValueError):
+        return 1.0
+    if total <= 0:
+        return 1.0
+    return 100.0 if total <= 1.5 else 1.0
+
+
 def holdings_fingerprint(holdings: list[dict[str, Any]], mode: str = "full") -> str:
     """Stable cache key for a portfolio + analysis mode."""
     slim = []
@@ -184,15 +203,17 @@ class PortfolioAnalyzerService:
                 hdf = holdings_by_fund.get(name)
                 if hdf is None or hdf.empty:
                     continue
+                # Providers return holding weights either as percent points
+                # (summing to ~100) or as fractions (summing to ~1). Decide once
+                # per fund from the column total: testing row by row misreads a
+                # legitimate 0.8% holding as a fraction and inflates it a
+                # hundredfold, which pushed sector totals past 500%.
+                scale = _weight_scale(hdf)
                 for _, row in hdf.iterrows():
                     try:
-                        wt = abs(float(row.get("weight_pct", 0)))
+                        wt = abs(float(row.get("weight_pct", 0))) * scale
                     except (TypeError, ValueError):
                         continue
-                    if wt > 1.5:
-                        wt = wt  # already percent points
-                    else:
-                        wt = wt * 100
                     sec = str(row.get("sector") or "Other")
                     mc = str(row.get("market_cap") or "Other")
                     sn = str(row.get("security_name") or "Other")
